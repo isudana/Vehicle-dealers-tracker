@@ -19,13 +19,19 @@ export default function NavBar() {
       <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-3">
         <div className="flex items-center gap-6">
           <Link href="/" className="text-sm font-semibold text-gray-900">
-            Car Import Tracker
+            Vehicle Import Tracker
           </Link>
           <Link href="/" className="text-sm text-gray-600 hover:text-gray-900">
             Dashboard
           </Link>
+          <Link href="/vehicles" className="text-sm text-gray-600 hover:text-gray-900">
+            Vehicles
+          </Link>
           <Link href="/suppliers" className="text-sm text-gray-600 hover:text-gray-900">
             Suppliers
+          </Link>
+          <Link href="/customers" className="text-sm text-gray-600 hover:text-gray-900">
+            Customers
           </Link>
         </div>
         <button

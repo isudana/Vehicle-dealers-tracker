@@ -3,15 +3,15 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Car } from "@/lib/types";
+import type { ReceiptMethod } from "@/lib/types";
 
-export default function PaymentForm({ supplierId, cars }: { supplierId: string; cars: Car[] }) {
+export default function ReceiptForm({ saleId }: { saleId: string }) {
   const router = useRouter();
   const supabase = createClient();
   const [amount, setAmount] = useState("");
-  const [carId, setCarId] = useState("");
-  const [paymentDate, setPaymentDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [method, setMethod] = useState("");
+  const [method, setMethod] = useState<ReceiptMethod>("ADVANCE");
+  const [receivedDate, setReceivedDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [reference, setReference] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -22,12 +22,12 @@ export default function PaymentForm({ supplierId, cars }: { supplierId: string; 
 
     const { data: userData } = await supabase.auth.getUser();
 
-    const { error } = await supabase.from("supplier_payments").insert({
-      supplier_id: supplierId,
-      car_id: carId || null,
+    const { error } = await supabase.from("sale_receipts").insert({
+      sale_id: saleId,
       amount: Number(amount),
-      payment_date: paymentDate,
-      method: method || null,
+      payment_method: method,
+      received_date: receivedDate,
+      reference: reference || null,
       created_by: userData.user?.id,
     });
 
@@ -39,16 +39,21 @@ export default function PaymentForm({ supplierId, cars }: { supplierId: string; 
     }
 
     setAmount("");
-    setMethod("");
+    setReference("");
     router.refresh();
   }
 
   return (
     <form onSubmit={handleSubmit} className="grid grid-cols-5 gap-2 rounded-md border border-gray-200 p-3">
+      <select value={method} onChange={(e) => setMethod(e.target.value as ReceiptMethod)} className="input">
+        <option value="ADVANCE">Advance</option>
+        <option value="DIRECT_CASH">Direct Cash</option>
+        <option value="LEASING_DISBURSAL">Leasing Disbursal</option>
+      </select>
       <input
         type="date"
-        value={paymentDate}
-        onChange={(e) => setPaymentDate(e.target.value)}
+        value={receivedDate}
+        onChange={(e) => setReceivedDate(e.target.value)}
         className="input"
       />
       <input
@@ -60,19 +65,11 @@ export default function PaymentForm({ supplierId, cars }: { supplierId: string; 
         onChange={(e) => setAmount(e.target.value)}
         className="input"
       />
-      <select value={carId} onChange={(e) => setCarId(e.target.value)} className="input">
-        <option value="">General (no car)</option>
-        {cars.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.make} {c.model}
-          </option>
-        ))}
-      </select>
       <input
         type="text"
-        placeholder="Method (bank transfer, cash...)"
-        value={method}
-        onChange={(e) => setMethod(e.target.value)}
+        placeholder="Reference"
+        value={reference}
+        onChange={(e) => setReference(e.target.value)}
         className="input"
       />
       <button
@@ -80,7 +77,7 @@ export default function PaymentForm({ supplierId, cars }: { supplierId: string; 
         disabled={saving}
         className="rounded-md bg-gray-900 px-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
       >
-        {saving ? "…" : "Record payment"}
+        {saving ? "…" : "Record receipt"}
       </button>
       {error && <p className="col-span-5 text-sm text-red-600">{error}</p>}
     </form>

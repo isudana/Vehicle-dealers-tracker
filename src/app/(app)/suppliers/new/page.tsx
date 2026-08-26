@@ -8,8 +8,10 @@ export default function NewSupplierPage() {
   const router = useRouter();
   const supabase = createClient();
   const [name, setName] = useState("");
-  const [contactInfo, setContactInfo] = useState("");
-  const [notes, setNotes] = useState("");
+  const [country, setCountry] = useState("Japan");
+  const [contactPerson, setContactPerson] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -20,7 +22,13 @@ export default function NewSupplierPage() {
 
     const { data, error } = await supabase
       .from("suppliers")
-      .insert({ name, contact_info: contactInfo || null, notes: notes || null })
+      .insert({
+        name,
+        country,
+        contact_person: contactPerson || null,
+        phone: phone || null,
+        email: email || null,
+      })
       .select("id")
       .single();
 
@@ -44,17 +52,27 @@ export default function NewSupplierPage() {
           <input required value={name} onChange={(e) => setName(e.target.value)} className="input mt-1" />
         </label>
         <label className="block">
-          <span className="text-sm font-medium text-gray-700">Contact info</span>
+          <span className="text-sm font-medium text-gray-700">Country</span>
+          <input value={country} onChange={(e) => setCountry(e.target.value)} className="input mt-1" />
+        </label>
+        <label className="block">
+          <span className="text-sm font-medium text-gray-700">Contact person</span>
           <input
-            value={contactInfo}
-            onChange={(e) => setContactInfo(e.target.value)}
+            value={contactPerson}
+            onChange={(e) => setContactPerson(e.target.value)}
             className="input mt-1"
           />
         </label>
-        <label className="block">
-          <span className="text-sm font-medium text-gray-700">Notes</span>
-          <textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="input mt-1" rows={3} />
-        </label>
+        <div className="grid grid-cols-2 gap-4">
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700">Phone</span>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} className="input mt-1" />
+          </label>
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700">Email</span>
+            <input value={email} onChange={(e) => setEmail(e.target.value)} className="input mt-1" />
+          </label>
+        </div>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 

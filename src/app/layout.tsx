@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Car Import Tracker",
-  description: "Track car purchases, expenses, supplier payments, and sales",
+  title: "Vehicle Import Tracker",
+  description: "Track vehicle imports, landed costs, supplier balances, and sales",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
