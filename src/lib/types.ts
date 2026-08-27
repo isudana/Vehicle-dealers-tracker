@@ -204,6 +204,9 @@ export type AppSettings = {
   id: number;
   app_name: string;
   logo_path: string | null;
+  address: string | null;
+  phone: string | null;
+  email: string | null;
 };
 
 export type Customer = {
@@ -239,7 +242,24 @@ export type SaleReceipt = {
   received_date: string;
   reference: string | null;
   notes: string | null;
+  sales?: Sale | null;
 };
+
+export type Invoice = {
+  id: string;
+  invoice_no: number;
+  sale_receipt_id: string;
+  chassis_number: string;
+  invoiced_amount: number;
+  issue_date: string;
+  notes: string | null;
+  sale_receipts?: SaleReceipt | null;
+  vehicles?: Vehicle | null;
+};
+
+export function formatInvoiceNo(invoiceNo: number) {
+  return `INV-${String(invoiceNo).padStart(6, "0")}`;
+}
 
 export type VehiclePnl = {
   chassis_number: string;

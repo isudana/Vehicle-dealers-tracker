@@ -23,6 +23,7 @@ import VehicleDocumentUploader from "@/components/VehicleDocumentUploader";
 import VehiclePricingForm from "@/components/VehiclePricingForm";
 import SaleForm from "@/components/SaleForm";
 import ReceiptForm from "@/components/ReceiptForm";
+import GenerateInvoiceButton from "@/components/GenerateInvoiceButton";
 import MarkReceivedButton from "@/components/MarkReceivedButton";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
 import DeleteVehicleButton from "@/components/DeleteVehicleButton";
@@ -98,13 +99,23 @@ export default async function VehicleDetailPage({
   );
 
   let receipts: SaleReceipt[] = [];
+  let invoiceIdByReceiptId: Record<string, string> = {};
   if (sale) {
-    const { data } = await supabase
-      .from("sale_receipts")
-      .select("*")
-      .eq("sale_id", sale.id)
-      .order("received_date", { ascending: false });
-    receipts = (data ?? []) as SaleReceipt[];
+    const [receiptsRes, invoicesRes] = await Promise.all([
+      supabase
+        .from("sale_receipts")
+        .select("*")
+        .eq("sale_id", sale.id)
+        .order("received_date", { ascending: false }),
+      supabase.from("invoices").select("id, sale_receipt_id").eq("chassis_number", chassisNumber),
+    ]);
+    receipts = (receiptsRes.data ?? []) as SaleReceipt[];
+    invoiceIdByReceiptId = Object.fromEntries(
+      ((invoicesRes.data ?? []) as { id: string; sale_receipt_id: string }[]).map((inv) => [
+        inv.sale_receipt_id,
+        inv.id,
+      ]),
+    );
   }
 
   const profit = pnl?.net_profit ?? pnl?.projected_profit ?? null;
@@ -380,7 +391,20 @@ export default async function VehicleDetailPage({
                         <td className="px-4 py-2 text-gray-600">{r.reference ?? "—"}</td>
                         <td className="px-4 py-2 text-gray-900">{formatMoney(r.amount)}</td>
                         <td className="px-4 py-2">
-                          <EntityDeleteButton what="this receipt" table="sale_receipts" id={r.id} />
+                          <div className="flex items-center gap-3">
+                            {invoiceIdByReceiptId[r.id] ? (
+                              <Link href={`/invoices/${invoiceIdByReceiptId[r.id]}`} className="text-gray-900 underline">
+                                View Invoice
+                              </Link>
+                            ) : (
+                              <GenerateInvoiceButton
+                                saleReceiptId={r.id}
+                                chassisNumber={chassisNumber}
+                                defaultAmount={r.amount}
+                              />
+                            )}
+                            <EntityDeleteButton what="this receipt" table="sale_receipts" id={r.id} />
+                          </div>
                         </td>
                       </tr>
                     ))}
