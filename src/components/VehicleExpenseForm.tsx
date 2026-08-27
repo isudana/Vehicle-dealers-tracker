@@ -20,19 +20,20 @@ export default function VehicleExpenseForm({
   chassisNumber,
   costHeads,
   entities,
+  supplierAccountId,
   supplierEntityId,
 }: {
   chassisNumber: string;
   costHeads: CostHead[];
   entities: CashEntity[];
+  supplierAccountId?: string;
   supplierEntityId?: string;
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const sourceOptions = entities.filter((e) => e.direction !== "DESTINATION_ONLY");
-  const destinationOptions = entities.filter((e) => e.direction !== "SOURCE_ONLY");
+  const sourceOptions = entities.filter((e) => e.category !== "CASH_ENTITY");
+  const destinationOptions = entities;
   const defaultSource = sourceOptions.find((e) => e.type === "CASH") ?? sourceOptions[0];
-  const vehiclePurchasesEntity = entities.find((e) => e.name === "Vehicle Purchases");
 
   const [costHeadId, setCostHeadId] = useState(costHeads[0]?.id ?? "");
   const [amount, setAmount] = useState("");
@@ -99,12 +100,12 @@ export default function VehicleExpenseForm({
 
   function handleFundFromSupplierToggle(checked: boolean) {
     setFundFromSupplier(checked);
-    if (checked && supplierEntityId && vehiclePurchasesEntity) {
-      setSourceId(supplierEntityId);
-      setDestinationId(vehiclePurchasesEntity.id);
+    if (checked && supplierAccountId && supplierEntityId) {
+      setSourceId(supplierAccountId);
+      setDestinationId(supplierEntityId);
       setDestinationTouched(true);
-      const supplierEntity = entities.find((e) => e.id === supplierEntityId);
-      if (supplierEntity) handleCurrencyChange(supplierEntity.primary_currency, false);
+      const supplierAccount = entities.find((e) => e.id === supplierAccountId);
+      if (supplierAccount) handleCurrencyChange(supplierAccount.primary_currency, false);
     } else {
       setSourceId(defaultSource?.id ?? "");
       if (supplierEntityId) applyDestination(supplierEntityId, false);
@@ -243,7 +244,7 @@ export default function VehicleExpenseForm({
           className="input disabled:bg-gray-100 disabled:text-gray-400"
         />
       </Field>
-      {isSupplierFundableHead && supplierEntityId && vehiclePurchasesEntity && (
+      {isSupplierFundableHead && supplierAccountId && supplierEntityId && (
         <label className="col-span-4 flex items-center gap-2 text-sm text-gray-700">
           <input
             type="checkbox"

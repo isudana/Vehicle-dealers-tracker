@@ -35,23 +35,29 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
 
   const supplier = supplierRes.data as Supplier;
   const entities = (entitiesRes.data ?? []) as CashEntity[];
-  const supplierEntity = entities.find((e) => e.supplier_id === supplier.id);
+  const supplierAccount = entities.find((e) => e.supplier_id === supplier.id && e.category === "CASH_ACCOUNT");
+  const supplierEntity = entities.find((e) => e.supplier_id === supplier.id && e.category === "CASH_ENTITY");
   const otherEntities = entities.filter((e) => e.supplier_id !== supplier.id);
   const vehicles = (vehiclesRes.data ?? []) as Vehicle[];
   const logoUrl = supplier.logo_path ? getPublicUrl(supabase, "supplier-logos", supplier.logo_path) : null;
 
   let balance: CashEntityBalance | null = null;
+  let entityBalance: CashEntityBalance | null = null;
   let transfers: CashTransfer[] = [];
-  if (supplierEntity) {
-    const [balanceRes, transfersRes] = await Promise.all([
+  if (supplierAccount && supplierEntity) {
+    const [balanceRes, entityBalanceRes, transfersRes] = await Promise.all([
+      supabase.from("cash_entity_balance").select("*").eq("entity_id", supplierAccount.id).maybeSingle(),
       supabase.from("cash_entity_balance").select("*").eq("entity_id", supplierEntity.id).maybeSingle(),
       supabase
         .from("cash_transfers")
         .select("*, source_entity:source_entity_id(*), destination_entity:destination_entity_id(*)")
-        .or(`source_entity_id.eq.${supplierEntity.id},destination_entity_id.eq.${supplierEntity.id}`)
+        .or(
+          `source_entity_id.in.(${supplierAccount.id},${supplierEntity.id}),destination_entity_id.in.(${supplierAccount.id},${supplierEntity.id})`,
+        )
         .order("transfer_date", { ascending: false }),
     ]);
     balance = balanceRes.data as CashEntityBalance | null;
+    entityBalance = entityBalanceRes.data as CashEntityBalance | null;
     transfers = (transfersRes.data ?? []) as CashTransfer[];
   }
 
@@ -97,7 +103,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
 
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-          In {supplier.primary_currency}
+          Account balance — undrawn prepaid credit, in {supplier.primary_currency}
         </p>
         <div className="grid grid-cols-3 gap-4">
           <SummaryCard label="Total in" value={formatMoney(balance?.total_in_native ?? 0, supplier.primary_currency)} />
@@ -123,16 +129,29 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         </div>
       </div>
 
+      <div>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+          Total paid for vehicles (all time)
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <SummaryCard
+            label={`In ${supplier.primary_currency}`}
+            value={formatMoney(entityBalance?.balance_native ?? 0, supplier.primary_currency)}
+          />
+          <SummaryCard label="In LKR" value={formatMoney(entityBalance?.balance_lkr ?? 0)} />
+        </div>
+      </div>
+
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-900">Log a transfer with this supplier</h2>
-        {supplierEntity ? (
+        <h2 className="text-sm font-medium text-gray-900">Log a transfer with this supplier&rsquo;s account</h2>
+        {supplierAccount ? (
           <SupplierTransferForm
-            supplierEntityId={supplierEntity.id}
+            supplierAccountId={supplierAccount.id}
             defaultCurrency={supplier.primary_currency}
             otherEntities={otherEntities}
           />
         ) : (
-          <p className="text-sm text-gray-500">Setting up this supplier&rsquo;s cash entity…</p>
+          <p className="text-sm text-gray-500">Setting up this supplier&rsquo;s cash account…</p>
         )}
       </section>
 

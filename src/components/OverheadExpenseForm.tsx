@@ -21,8 +21,8 @@ export default function OverheadExpenseForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const sourceOptions = entities.filter((e) => e.direction !== "DESTINATION_ONLY");
-  const destinationOptions = entities.filter((e) => e.direction !== "SOURCE_ONLY");
+  const sourceOptions = entities.filter((e) => e.category !== "CASH_ENTITY");
+  const destinationOptions = entities;
   const defaultSource = sourceOptions.find((e) => e.type === "CASH") ?? sourceOptions[0];
 
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
