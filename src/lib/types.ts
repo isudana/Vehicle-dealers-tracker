@@ -34,7 +34,8 @@ export type CashEntityType =
   | "BANK"
   | "CLEARING_AGENT"
   | "CASH"
-  | "INTERNAL";
+  | "LEASING_COMPANY"
+  | "OTHER";
 
 export const CASH_ENTITY_TYPE_LABEL: Record<CashEntityType, string> = {
   GOVERNMENT: "Government",
@@ -46,7 +47,8 @@ export const CASH_ENTITY_TYPE_LABEL: Record<CashEntityType, string> = {
   BANK: "Bank",
   CLEARING_AGENT: "Clearing Agent",
   CASH: "Cash",
-  INTERNAL: "Internal",
+  LEASING_COMPANY: "Leasing Company",
+  OTHER: "Other",
 };
 
 export type TransferMethod = "TT" | "LC" | "CASH" | "BANK_TRANSFER" | "OTHER";
@@ -59,20 +61,20 @@ export const TRANSFER_METHOD_LABEL: Record<TransferMethod, string> = {
   OTHER: "Other",
 };
 
-export type CashEntityDirection = "BIDIRECTIONAL" | "SOURCE_ONLY" | "DESTINATION_ONLY";
+export type CashEntityCategory = "CASH_ACCOUNT" | "CASH_ENTITY" | "INVESTOR" | "LEASING_COMPANY";
 
-export const CASH_ENTITY_DIRECTION_LABEL: Record<CashEntityDirection, string> = {
-  BIDIRECTIONAL: "Bidirectional",
-  SOURCE_ONLY: "Source only",
-  DESTINATION_ONLY: "Destination only",
+export const CASH_ENTITY_CATEGORY_LABEL: Record<CashEntityCategory, string> = {
+  CASH_ACCOUNT: "Cash Account",
+  CASH_ENTITY: "Cash Entity",
+  INVESTOR: "Investor",
+  LEASING_COMPANY: "Leasing Company",
 };
 
 export type CashEntity = {
   id: string;
   name: string;
   type: CashEntityType;
-  direction: CashEntityDirection;
-  is_system: boolean;
+  category: CashEntityCategory;
   logo_path: string | null;
   primary_currency: string;
   supplier_id: string | null;
@@ -101,6 +103,8 @@ export type CashEntityBalance = {
   entity_id: string;
   name: string;
   type: CashEntityType;
+  category: CashEntityCategory;
+  logo_path: string | null;
   primary_currency: string;
   supplier_id: string | null;
   total_in_lkr: number;
@@ -143,7 +147,9 @@ export type Vehicle = {
   color: string | null;
   target_listing_price: number;
   auction_price: number | null;
+  auction_price_currency: string;
   cif_price: number | null;
+  cif_price_currency: string;
   purchase_date: string | null;
   expected_clearance_date: string | null;
   vehicle_status: VehicleStatus;
@@ -224,7 +230,7 @@ export type Sale = {
   customer_id: string;
   agreed_sale_price: number;
   payment_type: PaymentType;
-  leasing_company_name: string | null;
+  leasing_company_id: string | null;
   leasing_amount_approved: number;
   leasing_status: LeasingStatus;
   release_order_status: string | null;
@@ -232,6 +238,7 @@ export type Sale = {
   notes: string | null;
   customers?: Customer | null;
   vehicles?: Vehicle | null;
+  leasing_company?: CashEntity | null;
 };
 
 export type SaleReceipt = {
@@ -239,6 +246,7 @@ export type SaleReceipt = {
   sale_id: string;
   amount: number;
   payment_method: ReceiptMethod;
+  cash_transfer_id: string | null;
   received_date: string;
   reference: string | null;
   notes: string | null;

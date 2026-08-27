@@ -8,9 +8,11 @@ import {
   RECEIPT_METHOD_LABEL,
   TRANSFER_METHOD_LABEL,
   type CashEntity,
+  type Supplier,
   type Vehicle,
   type VehicleDocument,
   type VehicleExpense,
+  type VehicleModel,
   type VehiclePhoto,
   type VehiclePnl,
   type Sale,
@@ -20,8 +22,9 @@ import {
 import VehicleExpenseForm from "@/components/VehicleExpenseForm";
 import VehiclePhotoUploader from "@/components/VehiclePhotoUploader";
 import VehicleDocumentUploader from "@/components/VehicleDocumentUploader";
-import VehiclePricingForm from "@/components/VehiclePricingForm";
+import VehicleEditForm from "@/components/VehicleEditForm";
 import SaleForm from "@/components/SaleForm";
+import SaleLeasingEditForm from "@/components/SaleLeasingEditForm";
 import ReceiptForm from "@/components/ReceiptForm";
 import GenerateInvoiceButton from "@/components/GenerateInvoiceButton";
 import MarkReceivedButton from "@/components/MarkReceivedButton";
@@ -37,37 +40,50 @@ export default async function VehicleDetailPage({
   const chassisNumber = decodeURIComponent(chassis);
   const supabase = await createClient();
 
-  const [vehicleRes, pnlRes, expensesRes, costHeadsRes, saleRes, customersRes, photosRes, documentsRes, entitiesRes] =
-    await Promise.all([
-      supabase
-        .from("vehicles")
-        .select("*, suppliers(*), vehicle_models(*)")
-        .eq("chassis_number", chassisNumber)
-        .single(),
-      supabase.from("vehicle_pnl").select("*").eq("chassis_number", chassisNumber).single(),
-      supabase
-        .from("vehicle_expenses")
-        .select("*, cost_heads(*), cash_transfers(*, source_entity:source_entity_id(*), destination_entity:destination_entity_id(*))")
-        .eq("chassis_number", chassisNumber),
-      supabase.from("cost_heads").select("*").order("group_name"),
-      supabase
-        .from("sales")
-        .select("*, customers(*)")
-        .eq("chassis_number", chassisNumber)
-        .maybeSingle(),
-      supabase.from("customers").select("*").order("full_name"),
-      supabase
-        .from("vehicle_photos")
-        .select("*")
-        .eq("chassis_number", chassisNumber)
-        .order("created_at", { ascending: false }),
-      supabase
-        .from("vehicle_documents")
-        .select("*")
-        .eq("chassis_number", chassisNumber)
-        .order("created_at", { ascending: false }),
-      supabase.from("cash_entities").select("*").order("name"),
-    ]);
+  const [
+    vehicleRes,
+    pnlRes,
+    expensesRes,
+    costHeadsRes,
+    saleRes,
+    customersRes,
+    photosRes,
+    documentsRes,
+    entitiesRes,
+    suppliersRes,
+    modelsRes,
+  ] = await Promise.all([
+    supabase
+      .from("vehicles")
+      .select("*, suppliers(*), vehicle_models(*)")
+      .eq("chassis_number", chassisNumber)
+      .single(),
+    supabase.from("vehicle_pnl").select("*").eq("chassis_number", chassisNumber).single(),
+    supabase
+      .from("vehicle_expenses")
+      .select("*, cost_heads(*), cash_transfers(*, source_entity:source_entity_id(*), destination_entity:destination_entity_id(*))")
+      .eq("chassis_number", chassisNumber),
+    supabase.from("cost_heads").select("*").order("group_name"),
+    supabase
+      .from("sales")
+      .select("*, customers(*), leasing_company:leasing_company_id(*)")
+      .eq("chassis_number", chassisNumber)
+      .maybeSingle(),
+    supabase.from("customers").select("*").order("full_name"),
+    supabase
+      .from("vehicle_photos")
+      .select("*")
+      .eq("chassis_number", chassisNumber)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("vehicle_documents")
+      .select("*")
+      .eq("chassis_number", chassisNumber)
+      .order("created_at", { ascending: false }),
+    supabase.from("cash_entities").select("*").order("name"),
+    supabase.from("suppliers").select("*").order("name"),
+    supabase.from("vehicle_models").select("*").order("make").order("name"),
+  ]);
 
   if (vehicleRes.error || !vehicleRes.data) {
     notFound();
@@ -88,7 +104,16 @@ export default async function VehicleDetailPage({
     documents.map((d) => getSignedUrl(supabase, "vehicle-documents", d.storage_path)),
   );
   const entities = (entitiesRes.data ?? []) as CashEntity[];
-  const supplierEntity = entities.find((e) => e.supplier_id === vehicle.supplier_id);
+  const supplierAccount = entities.find(
+    (e) => e.supplier_id === vehicle.supplier_id && e.category === "CASH_ACCOUNT",
+  );
+  const supplierEntity = entities.find(
+    (e) => e.supplier_id === vehicle.supplier_id && e.category === "CASH_ENTITY",
+  );
+  const suppliers = (suppliersRes.data ?? []) as Supplier[];
+  const models = (modelsRes.data ?? []) as VehicleModel[];
+  const leasingCompanies = entities.filter((e) => e.category === "LEASING_COMPANY");
+  const accountOptions = entities.filter((e) => e.category === "CASH_ACCOUNT");
 
   const expenseAttachmentUrls = await Promise.all(
     expenses.map((e) =>
@@ -211,19 +236,19 @@ export default async function VehicleDetailPage({
           <span>
             Auction (FOB) price:{" "}
             <span className="text-gray-900">
-              {vehicle.auction_price != null ? formatMoney(vehicle.auction_price) : "—"}
+              {vehicle.auction_price != null
+                ? formatMoney(vehicle.auction_price, vehicle.auction_price_currency)
+                : "—"}
             </span>
           </span>
           <span>
             CIF price:{" "}
-            <span className="text-gray-900">{vehicle.cif_price != null ? formatMoney(vehicle.cif_price) : "—"}</span>
+            <span className="text-gray-900">
+              {vehicle.cif_price != null ? formatMoney(vehicle.cif_price, vehicle.cif_price_currency) : "—"}
+            </span>
           </span>
         </div>
-        <VehiclePricingForm
-          chassisNumber={vehicle.chassis_number}
-          auctionPrice={vehicle.auction_price}
-          cifPrice={vehicle.cif_price}
-        />
+        <VehicleEditForm vehicle={vehicle} suppliers={suppliers} models={models} />
       </section>
 
       <section className="space-y-3">
@@ -266,6 +291,7 @@ export default async function VehicleDetailPage({
           chassisNumber={vehicle.chassis_number}
           costHeads={costHeads}
           entities={entities}
+          supplierAccountId={supplierAccount?.id}
           supplierEntityId={supplierEntity?.id}
         />
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
@@ -335,7 +361,7 @@ export default async function VehicleDetailPage({
         <h2 className="text-sm font-medium text-gray-900">Sale</h2>
         {!sale ? (
           vehicle.vehicle_status === "IN_STOCK" ? (
-            <SaleForm chassisNumber={vehicle.chassis_number} customers={customers} />
+            <SaleForm chassisNumber={vehicle.chassis_number} customers={customers} leasingCompanies={leasingCompanies} />
           ) : (
             <p className="rounded-md bg-gray-50 p-3 text-sm text-gray-500">
               A vehicle must be In Stock before it can be sold.
@@ -359,16 +385,12 @@ export default async function VehicleDetailPage({
                 Payment type: {sale.payment_type} · Sale date: {sale.sale_date}
               </p>
               {sale.payment_type !== "DIRECT_CASH" && (
-                <p className="mt-1 text-gray-600">
-                  Leasing: {sale.leasing_company_name ?? "—"} · Approved{" "}
-                  {formatMoney(sale.leasing_amount_approved)} · Status: {sale.leasing_status} · RO:{" "}
-                  {sale.release_order_status ?? "—"}
-                </p>
+                <SaleLeasingEditForm sale={sale} leasingCompanies={leasingCompanies} />
               )}
             </div>
 
             <h3 className="text-sm font-medium text-gray-900">Receipts</h3>
-            <ReceiptForm saleId={sale.id} />
+            <ReceiptForm saleId={sale.id} leasingCompanyId={sale.leasing_company_id} accountOptions={accountOptions} />
             <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
               {receipts.length === 0 ? (
                 <p className="px-4 py-6 text-sm text-gray-500">No receipts recorded yet.</p>

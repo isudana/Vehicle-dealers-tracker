@@ -9,8 +9,8 @@ import { CURRENCIES, TRANSFER_METHOD_LABEL, type CashEntity, type TransferMethod
 export default function CashTransferForm({ entities }: { entities: CashEntity[] }) {
   const router = useRouter();
   const supabase = createClient();
-  const sourceOptions = entities.filter((e) => e.direction !== "DESTINATION_ONLY");
-  const destinationOptions = entities.filter((e) => e.direction !== "SOURCE_ONLY");
+  const sourceOptions = entities.filter((e) => e.category !== "CASH_ENTITY");
+  const destinationOptions = entities;
   const [sourceId, setSourceId] = useState(sourceOptions[0]?.id ?? "");
   const [destinationId, setDestinationId] = useState(
     destinationOptions.find((e) => e.id !== sourceOptions[0]?.id)?.id ?? destinationOptions[0]?.id ?? "",
@@ -104,7 +104,7 @@ export default function CashTransferForm({ entities }: { entities: CashEntity[] 
   if (entities.length < 2 || sourceOptions.length === 0 || destinationOptions.length === 0) {
     return (
       <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
-        Add at least two cash entities in Settings (with compatible directions) before logging a transfer.
+        Add at least two cash entities in Settings before logging a transfer.
       </p>
     );
   }

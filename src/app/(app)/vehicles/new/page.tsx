@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Supplier, VehicleModel } from "@/lib/types";
+import { CURRENCIES, type Supplier, type VehicleModel } from "@/lib/types";
 
 export default function NewVehiclePage() {
   const router = useRouter();
@@ -19,10 +19,13 @@ export default function NewVehiclePage() {
     color: "",
     target_listing_price: "",
     auction_price: "",
+    auction_price_currency: "LKR",
     cif_price: "",
+    cif_price_currency: "LKR",
     purchase_date: "",
     expected_clearance_date: "",
   });
+  const [priceCurrencyTouched, setPriceCurrencyTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -34,7 +37,12 @@ export default function NewVehiclePage() {
       .then(({ data }) => {
         setSuppliers(data ?? []);
         if (data && data.length > 0) {
-          setForm((f) => ({ ...f, supplier_id: data[0].id }));
+          setForm((f) => ({
+            ...f,
+            supplier_id: data[0].id,
+            auction_price_currency: data[0].primary_currency,
+            cif_price_currency: data[0].primary_currency,
+          }));
         }
       });
     supabase
@@ -52,6 +60,17 @@ export default function NewVehiclePage() {
 
   function update<K extends keyof typeof form>(key: K, value: string) {
     setForm((f) => ({ ...f, [key]: value }));
+  }
+
+  function handleSupplierChange(supplierId: string) {
+    const supplier = suppliers.find((s) => s.id === supplierId);
+    setForm((f) => ({
+      ...f,
+      supplier_id: supplierId,
+      ...(supplier && !priceCurrencyTouched
+        ? { auction_price_currency: supplier.primary_currency, cif_price_currency: supplier.primary_currency }
+        : {}),
+    }));
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -80,7 +99,9 @@ export default function NewVehiclePage() {
       color: form.color || null,
       target_listing_price: form.target_listing_price ? Number(form.target_listing_price) : 0,
       auction_price: form.auction_price ? Number(form.auction_price) : null,
+      auction_price_currency: form.auction_price_currency,
       cif_price: form.cif_price ? Number(form.cif_price) : null,
+      cif_price_currency: form.cif_price_currency,
       purchase_date: form.purchase_date || null,
       expected_clearance_date: form.expected_clearance_date || null,
       created_by: userData.user?.id,
@@ -120,7 +141,7 @@ export default function NewVehiclePage() {
             <select
               required
               value={form.supplier_id}
-              onChange={(e) => update("supplier_id", e.target.value)}
+              onChange={(e) => handleSupplierChange(e.target.value)}
               className="input"
             >
               {suppliers.map((s) => (
@@ -181,22 +202,54 @@ export default function NewVehiclePage() {
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Auction (FOB) price">
-            <input
-              type="number"
-              step="0.01"
-              value={form.auction_price}
-              onChange={(e) => update("auction_price", e.target.value)}
-              className="input"
-            />
+            <div className="flex gap-1">
+              <input
+                type="number"
+                step="0.01"
+                value={form.auction_price}
+                onChange={(e) => update("auction_price", e.target.value)}
+                className="input"
+              />
+              <select
+                value={form.auction_price_currency}
+                onChange={(e) => {
+                  setPriceCurrencyTouched(true);
+                  update("auction_price_currency", e.target.value);
+                }}
+                className="input w-20"
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
           </Field>
           <Field label="CIF price">
-            <input
-              type="number"
-              step="0.01"
-              value={form.cif_price}
-              onChange={(e) => update("cif_price", e.target.value)}
-              className="input"
-            />
+            <div className="flex gap-1">
+              <input
+                type="number"
+                step="0.01"
+                value={form.cif_price}
+                onChange={(e) => update("cif_price", e.target.value)}
+                className="input"
+              />
+              <select
+                value={form.cif_price_currency}
+                onChange={(e) => {
+                  setPriceCurrencyTouched(true);
+                  update("cif_price_currency", e.target.value);
+                }}
+                className="input w-20"
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
           </Field>
         </div>
 

@@ -41,7 +41,8 @@ drop table if exists cars cascade;
 drop table if exists suppliers cascade;
 
 drop type if exists transfer_method;
-drop type if exists cash_entity_direction;
+drop type if exists cash_entity_category;
+drop type if exists cash_entity_direction; -- from an earlier version of this schema
 drop type if exists cash_entity_type;
 drop type if exists receipt_method;
 drop type if exists advance_type; -- from an earlier version of this schema
@@ -75,28 +76,33 @@ create type vehicle_status_t as enum ('BOUGHT_NOT_RECEIVED', 'IN_STOCK', 'SOLD_P
 create type payment_type_t as enum ('DIRECT_CASH', 'LEASING', 'HYBRID');
 create type leasing_status_t as enum ('NOT_APPLICABLE', 'PENDING', 'RECEIVED');
 create type receipt_method as enum ('ADVANCE', 'DIRECT_CASH', 'LEASING_DISBURSAL');
--- 'CASH' and 'INTERNAL' are not among the 8 originally requested types — 'CASH' was added
--- for pools like Petty Cash (physical cash-in-hand rather than a bank account), 'INTERNAL'
--- for system accounting entities like "Vehicle Purchases" (see is_system below).
+-- 'CASH' and 'OTHER' are not among the 8 originally requested types — 'CASH' was added for
+-- pools like Petty Cash (physical cash-in-hand rather than a bank account), 'OTHER' as a
+-- catch-all for destination-only parties that don't fit the rest.
 create type cash_entity_type as enum
-  ('GOVERNMENT', 'PORT', 'SUPPLIER', 'DRIVER', 'MECHANIC', 'INVESTOR', 'BANK', 'CLEARING_AGENT', 'CASH', 'INTERNAL');
+  ('GOVERNMENT', 'PORT', 'SUPPLIER', 'DRIVER', 'MECHANIC', 'INVESTOR', 'BANK', 'CLEARING_AGENT', 'CASH',
+   'LEASING_COMPANY', 'OTHER');
 create type transfer_method as enum ('TT', 'LC', 'CASH', 'BANK_TRANSFER', 'OTHER');
--- Most entities can be either side of a transfer. Some are deposit-only (you only ever pay
--- into them, e.g. Sri Lanka Customs) or, in principle, source-only (you only ever receive
--- from them). Enforced both in the UI (dropdown filtering) and at the DB level below.
-create type cash_entity_direction as enum ('BIDIRECTIONAL', 'SOURCE_ONLY', 'DESTINATION_ONLY');
+-- Every cash entity belongs to one of four categories, which fixes its directionality:
+-- CASH_ACCOUNT (banks, petty cash, supplier accounts), INVESTOR, and LEASING_COMPANY are
+-- bidirectional — genuine pools of money you hold or that pay you. CASH_ENTITY
+-- (government/port bodies, drivers, mechanics, clearing agents, and a supplier's
+-- vehicle-payment record) is destination only — you only ever pay into these, never hold
+-- or draw down a balance with them. Enforced both in the UI (dropdown filtering) and at
+-- the DB level below.
+create type cash_entity_category as enum ('CASH_ACCOUNT', 'CASH_ENTITY', 'INVESTOR', 'LEASING_COMPANY');
 
 -- ============ App-wide settings (singleton row) ============
 create table app_settings (
   id smallint primary key default 1 check (id = 1),
-  app_name text not null default 'Vehicle Import Tracker',
+  app_name text not null default 'Vehicle Dealers Tracker',
   logo_path text,
   address text,
   phone text,
   email text
 );
 
-insert into app_settings (id, app_name) values (1, 'Vehicle Import Tracker');
+insert into app_settings (id, app_name) values (1, 'Vehicle Dealers Tracker');
 
 -- ============ Suppliers ============
 create table suppliers (
@@ -112,37 +118,38 @@ create table suppliers (
 );
 
 -- ============ Cash entities (people/orgs/pools that money moves between) ============
--- Every supplier automatically gets one of these (type SUPPLIER, kept in sync by the
--- trigger below) so supplier balances are just a filtered view of the same mechanism
--- used for banks, petty cash, drivers, mechanics, investors, etc.
+-- Every supplier automatically gets TWO of these (type SUPPLIER, kept in sync by the
+-- trigger below): a CASH_ACCOUNT (a bidirectional prepaid balance — TT deposits/LC
+-- transfers sent ahead of a specific purchase) and a CASH_ENTITY (destination-only,
+-- what a specific vehicle's LC/TT cost line actually pays into — either freshly from a
+-- bank, or drawn down from the supplier's own Account). This is the same mechanism used
+-- for banks, petty cash, drivers, mechanics, investors, etc.
 create table cash_entities (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   type cash_entity_type not null,
-  direction cash_entity_direction not null default 'BIDIRECTIONAL',
-  -- System entities are seeded/load-bearing (e.g. "Vehicle Purchases", used to reclassify
-  -- a supplier's existing balance into vehicle cost) — protected from deletion in Settings.
-  is_system boolean not null default false,
+  category cash_entity_category not null,
   logo_path text,
   primary_currency text not null default 'LKR',
-  supplier_id uuid unique references suppliers (id) on delete cascade,
-  created_at timestamptz not null default now()
+  supplier_id uuid references suppliers (id) on delete cascade,
+  created_at timestamptz not null default now(),
+  unique (supplier_id, category)
 );
 
-insert into cash_entities (name, type, direction, is_system) values
-  ('HIPG', 'PORT', 'DESTINATION_ONLY', false),
-  ('Sri Lanka Customs', 'GOVERNMENT', 'DESTINATION_ONLY', false),
-  ('Colombo Port', 'PORT', 'DESTINATION_ONLY', false),
-  ('RMV', 'GOVERNMENT', 'DESTINATION_ONLY', false),
-  ('Petty Cash', 'CASH', 'BIDIRECTIONAL', false),
-  ('Vehicle Purchases', 'INTERNAL', 'DESTINATION_ONLY', true);
+insert into cash_entities (name, type, category) values
+  ('HIPG', 'PORT', 'CASH_ENTITY'),
+  ('Sri Lanka Customs', 'GOVERNMENT', 'CASH_ENTITY'),
+  ('Colombo Port', 'PORT', 'CASH_ENTITY'),
+  ('RMV', 'GOVERNMENT', 'CASH_ENTITY'),
+  ('Petty Cash', 'CASH', 'CASH_ACCOUNT');
 
 create or replace function sync_cash_entity_from_supplier()
 returns trigger as $$
 begin
   if tg_op = 'INSERT' then
-    insert into cash_entities (name, type, logo_path, primary_currency, supplier_id)
-    values (new.name, 'SUPPLIER', new.logo_path, new.primary_currency, new.id);
+    insert into cash_entities (name, type, category, logo_path, primary_currency, supplier_id) values
+      (new.name, 'SUPPLIER', 'CASH_ACCOUNT', new.logo_path, new.primary_currency, new.id),
+      (new.name, 'SUPPLIER', 'CASH_ENTITY', new.logo_path, new.primary_currency, new.id);
   else
     update cash_entities
     set name = new.name, logo_path = new.logo_path, primary_currency = new.primary_currency
@@ -325,7 +332,9 @@ create table vehicles (
   color text,
   target_listing_price numeric(15, 2) not null default 0,
   auction_price numeric(15, 2),
+  auction_price_currency text not null default 'LKR',
   cif_price numeric(15, 2),
+  cif_price_currency text not null default 'LKR',
   purchase_date date,
   expected_clearance_date date,
   vehicle_status vehicle_status_t not null default 'BOUGHT_NOT_RECEIVED',
@@ -377,31 +386,26 @@ create table cash_transfers (
   check (source_entity_id <> destination_entity_id)
 );
 
-create or replace function enforce_cash_entity_direction()
+create or replace function enforce_cash_entity_category()
 returns trigger as $$
 declare
-  source_direction cash_entity_direction;
-  destination_direction cash_entity_direction;
+  source_category cash_entity_category;
 begin
-  select direction into source_direction from cash_entities where id = new.source_entity_id;
-  select direction into destination_direction from cash_entities where id = new.destination_entity_id;
+  select category into source_category from cash_entities where id = new.source_entity_id;
 
-  if source_direction = 'DESTINATION_ONLY' then
+  if source_category = 'CASH_ENTITY' then
     raise exception 'This entity can only receive money — it can''t be used as a source.';
-  end if;
-
-  if destination_direction = 'SOURCE_ONLY' then
-    raise exception 'This entity can only send money — it can''t be used as a destination.';
   end if;
 
   return new;
 end;
 $$ language plpgsql;
 
-drop trigger if exists on_cash_transfer_direction_check on cash_transfers;
-create trigger on_cash_transfer_direction_check
+drop trigger if exists on_cash_transfer_direction_check on cash_transfers; -- from an earlier version of this schema
+drop trigger if exists on_cash_transfer_category_check on cash_transfers;
+create trigger on_cash_transfer_category_check
   before insert or update on cash_transfers
-  for each row execute procedure enforce_cash_entity_direction();
+  for each row execute procedure enforce_cash_entity_category();
 
 -- ============ Dynamic cost ledger (wraps a cash transfer with a vehicle + cost head) ============
 create table vehicle_expenses (
@@ -469,7 +473,7 @@ create table sales (
   customer_id uuid not null references customers (id),
   agreed_sale_price numeric(15, 2) not null,
   payment_type payment_type_t not null,
-  leasing_company_name text,
+  leasing_company_id uuid references cash_entities (id),
   leasing_amount_approved numeric(15, 2) not null default 0,
   leasing_status leasing_status_t not null default 'NOT_APPLICABLE',
   release_order_status text,
@@ -485,6 +489,9 @@ create table sale_receipts (
   sale_id uuid not null references sales (id) on delete cascade,
   amount numeric(15, 2) not null,
   payment_method receipt_method not null,
+  -- Only set for LEASING_DISBURSAL receipts, linking to the Leasing Company -> bank/account
+  -- transfer this receipt represents. Advance/Direct Cash receipts don't touch the ledger.
+  cash_transfer_id uuid references cash_transfers (id) on delete cascade,
   received_date date not null default current_date,
   reference text,
   notes text,
@@ -558,6 +565,8 @@ select
   ce.id as entity_id,
   ce.name,
   ce.type,
+  ce.category,
+  ce.logo_path,
   ce.primary_currency,
   ce.supplier_id,
   coalesce(in_lkr.total, 0) as total_in_lkr,

@@ -12,7 +12,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="flex min-h-screen flex-col bg-gray-50 print:bg-white">
       <div className="print:hidden">
-        <NavBar appName={settings?.app_name ?? "Vehicle Import Tracker"} logoUrl={logoUrl} />
+        <NavBar appName={settings?.app_name ?? "Vehicle Dealers Tracker"} logoUrl={logoUrl} />
       </div>
       <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 print:max-w-none print:p-0">{children}</main>
     </div>

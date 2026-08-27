@@ -3,14 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Customer, PaymentType } from "@/lib/types";
+import type { CashEntity, Customer, PaymentType } from "@/lib/types";
 
 export default function SaleForm({
   chassisNumber,
   customers,
+  leasingCompanies,
 }: {
   chassisNumber: string;
   customers: Customer[];
+  leasingCompanies: CashEntity[];
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -21,7 +23,7 @@ export default function SaleForm({
   const [newCustomer, setNewCustomer] = useState({ full_name: "", nic_passport: "", phone: "" });
   const [agreedSalePrice, setAgreedSalePrice] = useState("");
   const [paymentType, setPaymentType] = useState<PaymentType>("DIRECT_CASH");
-  const [leasingCompanyName, setLeasingCompanyName] = useState("");
+  const [leasingCompanyId, setLeasingCompanyId] = useState(leasingCompanies[0]?.id ?? "");
   const [leasingAmountApproved, setLeasingAmountApproved] = useState("");
   const [releaseOrderStatus, setReleaseOrderStatus] = useState("");
   const [saleDate, setSaleDate] = useState(() => new Date().toISOString().slice(0, 10));
@@ -63,7 +65,7 @@ export default function SaleForm({
       customer_id: resolvedCustomerId,
       agreed_sale_price: Number(agreedSalePrice),
       payment_type: paymentType,
-      leasing_company_name: needsLeasingFields ? leasingCompanyName || null : null,
+      leasing_company_id: needsLeasingFields ? leasingCompanyId || null : null,
       leasing_amount_approved: needsLeasingFields && leasingAmountApproved ? Number(leasingAmountApproved) : 0,
       leasing_status: needsLeasingFields ? "PENDING" : "NOT_APPLICABLE",
       release_order_status: needsLeasingFields ? releaseOrderStatus || null : null,
@@ -168,12 +170,17 @@ export default function SaleForm({
 
       {needsLeasingFields && (
         <div className="grid grid-cols-3 gap-2 rounded-md bg-gray-50 p-3">
-          <input
-            placeholder="Leasing company"
-            value={leasingCompanyName}
-            onChange={(e) => setLeasingCompanyName(e.target.value)}
-            className="input"
-          />
+          {leasingCompanies.length === 0 ? (
+            <p className="text-xs text-amber-700">No leasing companies yet — add one in Settings.</p>
+          ) : (
+            <select value={leasingCompanyId} onChange={(e) => setLeasingCompanyId(e.target.value)} className="input">
+              {leasingCompanies.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             type="number"
             step="0.01"

@@ -7,29 +7,25 @@ import { uploadFile } from "@/lib/storage";
 import { CURRENCIES, TRANSFER_METHOD_LABEL, type CashEntity, type TransferMethod } from "@/lib/types";
 
 export default function SupplierTransferForm({
-  supplierEntityId,
+  supplierAccountId,
   defaultCurrency,
   otherEntities,
 }: {
-  supplierEntityId: string;
+  supplierAccountId: string;
   defaultCurrency: string;
   otherEntities: CashEntity[];
 }) {
   const router = useRouter();
   const supabase = createClient();
   const [direction, setDirection] = useState<"TO_SUPPLIER" | "FROM_SUPPLIER">("TO_SUPPLIER");
-  // When "To supplier," the other party acts as the source (must not be destination-only).
-  // When "From supplier" (refund), the other party acts as the destination (must not be source-only).
-  const otherPartyOptions = otherEntities.filter((e) =>
-    direction === "TO_SUPPLIER" ? e.direction !== "DESTINATION_ONLY" : e.direction !== "SOURCE_ONLY",
-  );
+  // When "To supplier," the other party acts as the source (must not be a destination-only
+  // Cash Entity). "From supplier" (refund) has no such restriction on the destination side.
+  const otherPartyOptions = otherEntities.filter((e) => (direction === "TO_SUPPLIER" ? e.category !== "CASH_ENTITY" : true));
   const [otherPartyId, setOtherPartyId] = useState(otherPartyOptions[0]?.id ?? "");
 
   function handleDirectionChange(value: "TO_SUPPLIER" | "FROM_SUPPLIER") {
     setDirection(value);
-    const validOptions = otherEntities.filter((e) =>
-      value === "TO_SUPPLIER" ? e.direction !== "DESTINATION_ONLY" : e.direction !== "SOURCE_ONLY",
-    );
+    const validOptions = otherEntities.filter((e) => (value === "TO_SUPPLIER" ? e.category !== "CASH_ENTITY" : true));
     if (!validOptions.some((e) => e.id === otherPartyId)) {
       setOtherPartyId(validOptions[0]?.id ?? "");
     }
@@ -62,8 +58,8 @@ export default function SupplierTransferForm({
     setSaving(true);
 
     const { data: userData } = await supabase.auth.getUser();
-    const sourceId = direction === "TO_SUPPLIER" ? otherPartyId : supplierEntityId;
-    const destinationId = direction === "TO_SUPPLIER" ? supplierEntityId : otherPartyId;
+    const sourceId = direction === "TO_SUPPLIER" ? otherPartyId : supplierAccountId;
+    const destinationId = direction === "TO_SUPPLIER" ? supplierAccountId : otherPartyId;
 
     const { data: transfer, error: transferError } = await supabase
       .from("cash_transfers")

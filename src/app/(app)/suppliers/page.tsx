@@ -8,6 +8,7 @@ export default async function SuppliersPage() {
     .from("cash_entity_balance")
     .select("*")
     .eq("type", "SUPPLIER")
+    .eq("category", "CASH_ACCOUNT")
     .order("name");
   const balances = (data ?? []) as CashEntityBalance[];
 

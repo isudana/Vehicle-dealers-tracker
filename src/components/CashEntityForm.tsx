@@ -5,23 +5,37 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import {
-  CASH_ENTITY_DIRECTION_LABEL,
+  CASH_ENTITY_CATEGORY_LABEL,
   CASH_ENTITY_TYPE_LABEL,
   CURRENCIES,
-  type CashEntityDirection,
+  type CashEntityCategory,
   type CashEntityType,
 } from "@/lib/types";
+
+// SUPPLIER is excluded everywhere here — those rows are trigger-managed only (created
+// automatically, one CASH_ACCOUNT + one CASH_ENTITY, when a supplier is added).
+const TYPE_OPTIONS_BY_CATEGORY: Record<CashEntityCategory, CashEntityType[]> = {
+  CASH_ACCOUNT: ["BANK", "CASH"],
+  CASH_ENTITY: ["GOVERNMENT", "PORT", "DRIVER", "MECHANIC", "CLEARING_AGENT", "BANK", "OTHER"],
+  INVESTOR: ["INVESTOR"],
+  LEASING_COMPANY: ["LEASING_COMPANY"],
+};
 
 export default function CashEntityForm() {
   const router = useRouter();
   const supabase = createClient();
   const [name, setName] = useState("");
-  const [type, setType] = useState<CashEntityType>("BANK");
-  const [direction, setDirection] = useState<CashEntityDirection>("BIDIRECTIONAL");
+  const [category, setCategory] = useState<CashEntityCategory>("CASH_ACCOUNT");
+  const [type, setType] = useState<CashEntityType>(TYPE_OPTIONS_BY_CATEGORY.CASH_ACCOUNT[0]);
   const [primaryCurrency, setPrimaryCurrency] = useState("LKR");
   const [logo, setLogo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  function handleCategoryChange(value: CashEntityCategory) {
+    setCategory(value);
+    setType(TYPE_OPTIONS_BY_CATEGORY[value][0]);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -30,7 +44,7 @@ export default function CashEntityForm() {
 
     const { data: inserted, error } = await supabase
       .from("cash_entities")
-      .insert({ name, type, direction, primary_currency: primaryCurrency })
+      .insert({ name, type, category, primary_currency: primaryCurrency })
       .select("id")
       .single();
 
@@ -62,15 +76,26 @@ export default function CashEntityForm() {
       <Field label="Name">
         <input required value={name} onChange={(e) => setName(e.target.value)} className="input w-48" />
       </Field>
+      <Field label="Category">
+        <select
+          value={category}
+          onChange={(e) => handleCategoryChange(e.target.value as CashEntityCategory)}
+          className="input"
+        >
+          {(Object.keys(CASH_ENTITY_CATEGORY_LABEL) as CashEntityCategory[]).map((c) => (
+            <option key={c} value={c}>
+              {CASH_ENTITY_CATEGORY_LABEL[c]}
+            </option>
+          ))}
+        </select>
+      </Field>
       <Field label="Type">
         <select value={type} onChange={(e) => setType(e.target.value as CashEntityType)} className="input">
-          {(Object.keys(CASH_ENTITY_TYPE_LABEL) as CashEntityType[])
-            .filter((t) => t !== "SUPPLIER")
-            .map((t) => (
-              <option key={t} value={t}>
-                {CASH_ENTITY_TYPE_LABEL[t]}
-              </option>
-            ))}
+          {TYPE_OPTIONS_BY_CATEGORY[category].map((t) => (
+            <option key={t} value={t}>
+              {CASH_ENTITY_TYPE_LABEL[t]}
+            </option>
+          ))}
         </select>
       </Field>
       <Field label="Primary currency">
@@ -78,19 +103,6 @@ export default function CashEntityForm() {
           {CURRENCIES.map((c) => (
             <option key={c} value={c}>
               {c}
-            </option>
-          ))}
-        </select>
-      </Field>
-      <Field label="Direction">
-        <select
-          value={direction}
-          onChange={(e) => setDirection(e.target.value as CashEntityDirection)}
-          className="input"
-        >
-          {(Object.keys(CASH_ENTITY_DIRECTION_LABEL) as CashEntityDirection[]).map((d) => (
-            <option key={d} value={d}>
-              {CASH_ENTITY_DIRECTION_LABEL[d]}
             </option>
           ))}
         </select>

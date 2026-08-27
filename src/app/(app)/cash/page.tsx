@@ -1,16 +1,20 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { getSignedUrl } from "@/lib/storage";
+import { getPublicUrl, getSignedUrl } from "@/lib/storage";
 import {
+  CASH_ENTITY_CATEGORY_LABEL,
   CASH_ENTITY_TYPE_LABEL,
   TRANSFER_METHOD_LABEL,
   formatMoney,
   type CashEntity,
   type CashEntityBalance,
+  type CashEntityCategory,
   type CashTransfer,
 } from "@/lib/types";
 import CashTransferForm from "@/components/CashTransferForm";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
+
+const CASH_ENTITY_CATEGORIES: CashEntityCategory[] = ["CASH_ACCOUNT", "CASH_ENTITY", "INVESTOR", "LEASING_COMPANY"];
 
 export default async function CashPage() {
   const supabase = await createClient();
@@ -46,46 +50,63 @@ export default async function CashPage() {
         </Link>
       </div>
 
-      <section className="space-y-3">
+      <section className="space-y-4">
         <h2 className="text-sm font-medium text-gray-900">Entity balances</h2>
-        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-          {balances.length === 0 ? (
-            <p className="px-4 py-6 text-sm text-gray-500">No cash entities yet.</p>
-          ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-500">
-                  <th className="px-4 py-2">Name</th>
-                  <th className="px-4 py-2">Type</th>
-                  <th className="px-4 py-2">Balance (native)</th>
-                  <th className="px-4 py-2">Balance (LKR)</th>
-                </tr>
-              </thead>
-              <tbody>
-                {balances.map((b) => (
-                  <tr key={b.entity_id} className="border-t border-gray-100">
-                    <td className="px-4 py-2">
-                      {b.supplier_id ? (
-                        <Link href={`/suppliers/${b.supplier_id}`} className="text-gray-900 hover:underline">
-                          {b.name}
-                        </Link>
-                      ) : (
-                        <span className="text-gray-900">{b.name}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-gray-600">{CASH_ENTITY_TYPE_LABEL[b.type]}</td>
-                    <td className={`px-4 py-2 ${b.balance_native < 0 ? "text-red-700" : "text-gray-600"}`}>
-                      {formatMoney(b.balance_native, b.primary_currency)}
-                    </td>
-                    <td className={`px-4 py-2 font-medium ${b.balance_lkr < 0 ? "text-red-700" : "text-gray-900"}`}>
-                      {formatMoney(b.balance_lkr)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        {CASH_ENTITY_CATEGORIES.map((category) => {
+          const categoryBalances = balances.filter((b) => b.category === category);
+          const balanceLabel = category === "CASH_ENTITY" ? "Cash Paid" : "Balance";
+          return (
+            <div key={category} className="space-y-1">
+              <p className="text-xs font-medium uppercase tracking-wide text-gray-400">
+                {CASH_ENTITY_CATEGORY_LABEL[category]} ({categoryBalances.length})
+              </p>
+              <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+                {categoryBalances.length === 0 ? (
+                  <p className="px-4 py-6 text-sm text-gray-500">None yet.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-gray-500">
+                        <th className="px-4 py-2">Name</th>
+                        <th className="px-4 py-2">Type</th>
+                        <th className="px-4 py-2">{balanceLabel} (native)</th>
+                        <th className="px-4 py-2">{balanceLabel} (LKR)</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {categoryBalances.map((b) => {
+                        const logoUrl = b.logo_path ? getPublicUrl(supabase, "cash-entity-logos", b.logo_path) : null;
+                        const href = b.supplier_id ? `/suppliers/${b.supplier_id}` : `/cash/${b.entity_id}`;
+                        return (
+                          <tr key={b.entity_id} className="border-t border-gray-100">
+                            <td className="px-4 py-2">
+                              <Link href={href} className="flex items-center gap-2 text-gray-900 hover:underline">
+                                {logoUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={logoUrl} alt="" className="h-6 w-6 rounded object-cover" />
+                                ) : (
+                                  <div className="h-6 w-6 rounded bg-gray-100" />
+                                )}
+                                {b.name}
+                              </Link>
+                            </td>
+                            <td className="px-4 py-2 text-gray-600">{CASH_ENTITY_TYPE_LABEL[b.type]}</td>
+                            <td className={`px-4 py-2 ${b.balance_native < 0 ? "text-red-700" : "text-gray-600"}`}>
+                              {formatMoney(b.balance_native, b.primary_currency)}
+                            </td>
+                            <td className={`px-4 py-2 font-medium ${b.balance_lkr < 0 ? "text-red-700" : "text-gray-900"}`}>
+                              {formatMoney(b.balance_lkr)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          );
+        })}
       </section>
 
       <section className="space-y-3">
