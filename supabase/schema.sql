@@ -18,6 +18,7 @@ drop table if exists resources cascade;
 drop table if exists overhead_expenses cascade;
 drop table if exists overhead_categories cascade;
 drop table if exists capital_injections cascade; -- from an earlier version of this schema
+drop table if exists invoices cascade;
 drop table if exists sale_receipts cascade;
 drop table if exists sales cascade;
 drop table if exists customers cascade;
@@ -89,7 +90,10 @@ create type cash_entity_direction as enum ('BIDIRECTIONAL', 'SOURCE_ONLY', 'DEST
 create table app_settings (
   id smallint primary key default 1 check (id = 1),
   app_name text not null default 'Vehicle Import Tracker',
-  logo_path text
+  logo_path text,
+  address text,
+  phone text,
+  email text
 );
 
 insert into app_settings (id, app_name) values (1, 'Vehicle Import Tracker');
@@ -488,6 +492,22 @@ create table sale_receipts (
   created_at timestamptz not null default now()
 );
 
+-- ============ Invoices (printable document per recorded receipt) ============
+-- One invoice per receipt; invoiced_amount is independently editable from the receipt's
+-- actual amount collected. chassis_number is denormalized here (not just reachable via
+-- sale_receipt -> sale) so invoices are directly queryable/linked from the vehicle page.
+create table invoices (
+  id uuid primary key default gen_random_uuid(),
+  invoice_no bigint generated always as identity,
+  sale_receipt_id uuid not null unique references sale_receipts (id) on delete cascade,
+  chassis_number text not null references vehicles (chassis_number),
+  invoiced_amount numeric(15, 2) not null,
+  issue_date date not null default current_date,
+  notes text,
+  created_by uuid references profiles (id),
+  created_at timestamptz not null default now()
+);
+
 -- ============ Views ============
 
 create view vehicle_pnl as
@@ -735,6 +755,7 @@ alter table resources enable row level security;
 alter table customers enable row level security;
 alter table sales enable row level security;
 alter table sale_receipts enable row level security;
+alter table invoices enable row level security;
 
 -- `profiles` is never dropped above, so its policies must be dropped explicitly to make this script rerunnable.
 drop policy if exists "authenticated read profiles" on profiles;
@@ -758,3 +779,4 @@ create policy "authenticated full access resources" on resources for all using (
 create policy "authenticated full access customers" on customers for all using (auth.role() = 'authenticated');
 create policy "authenticated full access sales" on sales for all using (auth.role() = 'authenticated');
 create policy "authenticated full access sale_receipts" on sale_receipts for all using (auth.role() = 'authenticated');
+create policy "authenticated full access invoices" on invoices for all using (auth.role() = 'authenticated');
