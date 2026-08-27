@@ -18,7 +18,7 @@ export default async function SettingsPage() {
   const supabase = await createClient();
   const [settingsRes, modelsRes, entitiesRes] = await Promise.all([
     supabase.from("app_settings").select("*").eq("id", 1).single(),
-    supabase.from("vehicle_models").select("*").order("name"),
+    supabase.from("vehicle_models").select("*").order("make").order("name"),
     supabase.from("cash_entities").select("*").order("type").order("name"),
   ]);
 
@@ -46,9 +46,12 @@ export default async function SettingsPage() {
             <ul className="divide-y divide-gray-100 text-sm text-gray-700">
               {models.map((m) => (
                 <li key={m.id} className="flex items-center justify-between px-4 py-2">
-                  <span>{m.name}</span>
+                  <span>
+                    <span className="font-medium text-gray-900">{m.make}</span> — {m.name}
+                    {m.chassis_code && <span className="ml-1 text-xs text-gray-400">({m.chassis_code})</span>}
+                  </span>
                   <EntityDeleteButton
-                    what={`model "${m.name}"`}
+                    what={`model "${m.make} ${m.name}"`}
                     table="vehicle_models"
                     id={m.id}
                     restrictHint="Can't delete — one or more vehicles use this model."
@@ -93,13 +96,17 @@ export default async function SettingsPage() {
                         </span>
                       )}
                     </div>
-                    <EntityDeleteButton
-                      what={`entity "${en.name}"`}
-                      table="cash_entities"
-                      id={en.id}
-                      filesToDelete={en.logo_path ? [{ bucket: "cash-entity-logos", path: en.logo_path }] : []}
-                      restrictHint="Can't delete — this entity has transfer history. Remove those transfers first."
-                    />
+                    {en.is_system ? (
+                      <span className="rounded-full bg-gray-200 px-2 py-0.5 text-xs text-gray-500">System</span>
+                    ) : (
+                      <EntityDeleteButton
+                        what={`entity "${en.name}"`}
+                        table="cash_entities"
+                        id={en.id}
+                        filesToDelete={en.logo_path ? [{ bucket: "cash-entity-logos", path: en.logo_path }] : []}
+                        restrictHint="Can't delete — this entity has transfer history. Remove those transfers first."
+                      />
+                    )}
                   </li>
                 );
               })}

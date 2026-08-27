@@ -40,6 +40,7 @@ drop table if exists cars cascade;
 drop table if exists suppliers cascade;
 
 drop type if exists transfer_method;
+drop type if exists cash_entity_direction;
 drop type if exists cash_entity_type;
 drop type if exists receipt_method;
 drop type if exists advance_type; -- from an earlier version of this schema
@@ -73,10 +74,11 @@ create type vehicle_status_t as enum ('BOUGHT_NOT_RECEIVED', 'IN_STOCK', 'SOLD_P
 create type payment_type_t as enum ('DIRECT_CASH', 'LEASING', 'HYBRID');
 create type leasing_status_t as enum ('NOT_APPLICABLE', 'PENDING', 'RECEIVED');
 create type receipt_method as enum ('ADVANCE', 'DIRECT_CASH', 'LEASING_DISBURSAL');
--- 'CASH' is not one of the 8 originally requested types — added for pools like Petty Cash,
--- which is physical cash-in-hand rather than a bank account.
+-- 'CASH' and 'INTERNAL' are not among the 8 originally requested types — 'CASH' was added
+-- for pools like Petty Cash (physical cash-in-hand rather than a bank account), 'INTERNAL'
+-- for system accounting entities like "Vehicle Purchases" (see is_system below).
 create type cash_entity_type as enum
-  ('GOVERNMENT', 'PORT', 'SUPPLIER', 'DRIVER', 'MECHANIC', 'INVESTOR', 'BANK', 'CLEARING_AGENT', 'CASH');
+  ('GOVERNMENT', 'PORT', 'SUPPLIER', 'DRIVER', 'MECHANIC', 'INVESTOR', 'BANK', 'CLEARING_AGENT', 'CASH', 'INTERNAL');
 create type transfer_method as enum ('TT', 'LC', 'CASH', 'BANK_TRANSFER', 'OTHER');
 -- Most entities can be either side of a transfer. Some are deposit-only (you only ever pay
 -- into them, e.g. Sri Lanka Customs) or, in principle, source-only (you only ever receive
@@ -114,18 +116,22 @@ create table cash_entities (
   name text not null,
   type cash_entity_type not null,
   direction cash_entity_direction not null default 'BIDIRECTIONAL',
+  -- System entities are seeded/load-bearing (e.g. "Vehicle Purchases", used to reclassify
+  -- a supplier's existing balance into vehicle cost) — protected from deletion in Settings.
+  is_system boolean not null default false,
   logo_path text,
   primary_currency text not null default 'LKR',
   supplier_id uuid unique references suppliers (id) on delete cascade,
   created_at timestamptz not null default now()
 );
 
-insert into cash_entities (name, type, direction) values
-  ('HIPG', 'PORT', 'DESTINATION_ONLY'),
-  ('Sri Lanka Customs', 'GOVERNMENT', 'DESTINATION_ONLY'),
-  ('Colombo Port', 'PORT', 'DESTINATION_ONLY'),
-  ('RMV', 'GOVERNMENT', 'DESTINATION_ONLY'),
-  ('Petty Cash', 'CASH', 'BIDIRECTIONAL');
+insert into cash_entities (name, type, direction, is_system) values
+  ('HIPG', 'PORT', 'DESTINATION_ONLY', false),
+  ('Sri Lanka Customs', 'GOVERNMENT', 'DESTINATION_ONLY', false),
+  ('Colombo Port', 'PORT', 'DESTINATION_ONLY', false),
+  ('RMV', 'GOVERNMENT', 'DESTINATION_ONLY', false),
+  ('Petty Cash', 'CASH', 'BIDIRECTIONAL', false),
+  ('Vehicle Purchases', 'INTERNAL', 'DESTINATION_ONLY', true);
 
 create or replace function sync_cash_entity_from_supplier()
 returns trigger as $$
@@ -171,140 +177,145 @@ insert into cost_heads (name, group_name) values
   ('Other', 'Legal & Miscellaneous');
 
 -- ============ Vehicle model catalog (managed via Settings) ============
+-- `chassis_code` is a model/platform code shared by every vehicle of this model
+-- (e.g. every RAIZE 1200CC HYBRID G is A202A) — distinct from vehicles.chassis_number,
+-- which is the unique per-vehicle VIN.
 create table vehicle_models (
   id uuid primary key default gen_random_uuid(),
-  name text not null unique,
-  created_at timestamptz not null default now()
+  make text not null,
+  name text not null,
+  chassis_code text,
+  created_at timestamptz not null default now(),
+  unique (make, name)
 );
 
-insert into vehicle_models (name) values
-  ('AQUA HYBRID 1500CC HYBRID X'),
-  ('AQUA HYBRID 1500CC HYBRID G'),
-  ('AQUA HYBRID 1500CC HYBRID Z'),
-  ('AXIO 1500CC HYBRID EX'),
-  ('Corolla Cross ZVG11 Hybrid Z 1800 cc'),
-  ('Corolla Sports G "Z"'),
-  ('HARRIER XU80 PETROL Z LEATHER PACKAGE'),
-  ('HARRIER XU80 PETROL G'),
-  ('HARRIER XU80 PETROL Z'),
-  ('6AA-AXUH85 HARRIER Z LEATHER PACKAGE 4WD'),
-  ('6AA-AXUH80 HARRIER Z LEATHER PACKAGE 2WD'),
-  ('6LA-AXUP85 HARRIER Z Plug-in Hybrid'),
-  ('RAIZE 1000CC PETROL X 4WD'),
-  ('RAIZE 1000CC PETROL G 4WD'),
-  ('RAIZE 1000CC PETROL Z 4WD'),
-  ('RAIZE 1200CC HYBRID G'),
-  ('RAIZE 1200CC HYBRID Z'),
-  ('RAIZE 1200CC PETROL G'),
-  ('RAIZE 1200CC PETROL X'),
-  ('RAIZE 1200CC PETROL Z'),
-  ('VEZEL 1500CC HYBRID E:HEV X'),
-  ('VEZEL 1500CC HYBRID E:HEV X HUNT'),
-  ('VEZEL 1500CC HYBRID E:HEV Z'),
-  ('VEZEL 1500CC HYBRID E:HEV Z Premium Audio'),
-  ('VEZEL 1500CC HYBRID E:HEV Z PLAY'),
-  ('VEZEL 1500CC HYBRID E:HEV RS'),
-  ('Wagon R HYBRID ZX 2WD CVT'),
-  ('Wagon R HYBRID ZX 4WD CVT'),
-  ('Wagon R ZL 2WD'),
-  ('Wagon R ZL 4WD'),
-  ('YARIS CROSS 1500CC HYBRID G'),
-  ('YARIS CROSS 1500CC HYBRID X'),
-  ('YARIS CROSS 1500CC HYBRID Z'),
-  ('YARIS CROSS 1500CC HYBRID Z ADVENTURE'),
-  ('YARIS HYBRID 1500CC HYBRID G'),
-  ('YARIS HYBRID 1500CC HYBRID X'),
-  ('YARIS HYBRID 1500CC HYBRID Z'),
-  ('YARIS PETROL 1000CC PETROL G'),
-  ('YARIS PETROL 1000CC PETROL X'),
-  ('Crown Z (hybrid car)'),
-  ('ALTO HYBRID X 2WD/CVT'),
-  ('ALTO HYBRID X 4WD/CVT'),
-  ('ALTO HYBRID S 2WD/CVT'),
-  ('ALTO HYBRID S 4WD/CVT'),
-  ('ALTO L 2WD/CVT'),
-  ('ALTO L 4WD/CVT'),
-  ('ALTO L 2WD/CVT Upgraded'),
-  ('ALTO L 4WD/CVT Upgraded'),
-  ('ALTO A 2WD/CVT'),
-  ('ALTO A 4WD/CVT'),
-  ('PIXIS EPOCH B SA III 2WD'),
-  ('PIXIS EPOCH L SA III 2WD'),
-  ('PIXIS EPOCH X SA III 2WD'),
-  ('PIXIS EPOCH G SA III 2WD'),
-  ('CLA 180'),
-  ('NISSAN AURA G'),
-  ('NISSAN AURA G Leather Edition'),
-  ('NISSAN AURA G 90 Aniversary'),
-  ('NISSAN AURA NISMO'),
-  ('NISSAN AURA AUTECH'),
-  ('NISSAN AURA AUTECH SPORTS'),
-  ('DAIHATSU TAFT X'),
-  ('DAIHATSU TAFT X TURBO'),
-  ('DAIHATSU TAFT G 2WD'),
-  ('DAIHATSU TAFT G "Chrome Venture"'),
-  ('DAIHATSU TAFT G "Dark Chrome Venture"'),
-  ('DAIHATSU TAFT G TURBO'),
-  ('DAIHATSU TAFT G TURBO "Chrome Venture"'),
-  ('DAIHATSU TAFT G TURBO "Chrome Venture" 4WD'),
-  ('DAIHATSU TAFT G TURBO "Dark Chrome Venture"'),
-  ('Audi Q3 Sportback'),
-  ('SWIFT HYBRID MZ 2WD/CVT'),
-  ('SWIFT HYBRID MZ 4WD/CVT'),
-  ('SWIFT HYBRID MX 2WD/5MT'),
-  ('SWIFT HYBRID MX 2WD/CVT'),
-  ('SWIFT HYBRID MX 4WD/CVT'),
-  ('SWIFT XG 2WD/CVT'),
-  ('SWIFT XG 4WD/CVT'),
-  ('Mira e:s B "SA III" 2WD'),
-  ('Mira e:s L "SA III" 2WD'),
-  ('Mira e:s X "SA III" 2WD'),
-  ('Mira e:s G "SA III" 2WD'),
-  ('Roomy Custom G T'),
-  ('Roomy Custom G 2WD'),
-  ('Roomy G'),
-  ('Roomy GT'),
-  ('Roomy X'),
-  ('Audi A3'),
-  ('Suzuki Jimny XG'),
-  ('Suzuki Jimny XL'),
-  ('Suzuki Jimny XC'),
-  ('Nissan Dayz Highway Star X ProPilot Edition'),
-  ('Nissan Dayz Highway Star G Turbo'),
-  ('EVERY WAGON PZ Turbo Special Standard Roof 2WD'),
-  ('EVERY WAGON PZ Turbo Special Standard Roof 4WD'),
-  ('EVERY WAGON PZ Turbo Special High Roof 2WD'),
-  ('EVERY WAGON PZ Turbo Special High Roof 4WD'),
-  ('EVERY WAGON PZ Turbo Standard Roof 2WD'),
-  ('EVERY WAGON PZ Turbo Standard Roof 4WD'),
-  ('EVERY WAGON PZ Turbo High Roof 2WD'),
-  ('EVERY WAGON PZ Turbo High Roof 4WD'),
-  ('EVERY JOIN Turbo (High Roof) 2WD'),
-  ('EVERY JOIN Turbo (High Roof) 4WD'),
-  ('EVERY JOIN (High Roof) 2WD MT'),
-  ('EVERY JOIN (High Roof) 4WD MT'),
-  ('EVERY JOIN (High Roof) 2WD CVT'),
-  ('EVERY JOIN (High Roof) 4WD CVT'),
-  ('EVERY PC (High Roof) 2WD 5MT'),
-  ('EVERY PC (High Roof) 4WD 5MT'),
-  ('EVERY PC (High Roof) 2WD CVT'),
-  ('EVERY PC (High Roof) 4WD CVT'),
-  ('EVERY PA Limited (High Roof) 2WD 5MT'),
-  ('EVERY PA Limited (High Roof) 4WD 5MT'),
-  ('EVERY PA Limited (High Roof) 2WD CVT'),
-  ('EVERY PA Limited (High Roof) 4WD CVT'),
-  ('EVERY PA (High Roof) 2WD 5MT'),
-  ('EVERY PA (High Roof) 4WD 5MT'),
-  ('EVERY PA (High Roof) 2WD CVT'),
-  ('EVERY PA (High Roof) 4WD CVT'),
-  ('Land Cruiser Prado 150 Petrol TRJ150 TX L Package 7 Seater'),
-  ('Land Cruiser Prado 250 Petrol');
+insert into vehicle_models (make, name, chassis_code) values
+  ('TOYOTA', 'AQUA HYBRID 1500CC HYBRID X', null),
+  ('TOYOTA', 'AQUA HYBRID 1500CC HYBRID G', null),
+  ('TOYOTA', 'AQUA HYBRID 1500CC HYBRID Z', null),
+  ('TOYOTA', 'AXIO 1500CC HYBRID EX', null),
+  ('TOYOTA', 'Corolla Cross ZVG11 Hybrid Z 1800 cc', null),
+  ('TOYOTA', 'Corolla Sports G "Z"', null),
+  ('TOYOTA', 'HARRIER XU80 PETROL Z LEATHER PACKAGE', '6BA-MXUA80-ANXSB(S)'),
+  ('TOYOTA', 'HARRIER XU80 PETROL G', null),
+  ('TOYOTA', 'HARRIER XU80 PETROL Z', null),
+  ('TOYOTA', '6AA-AXUH85 HARRIER Z LEATHER PACKAGE 4WD', null),
+  ('TOYOTA', '6AA-AXUH80 HARRIER Z LEATHER PACKAGE 2WD', null),
+  ('TOYOTA', '6LA-AXUP85 HARRIER Z Plug-in Hybrid', null),
+  ('TOYOTA', 'RAIZE 1000CC PETROL X 4WD', 'A210'),
+  ('TOYOTA', 'RAIZE 1000CC PETROL G 4WD', 'A210'),
+  ('TOYOTA', 'RAIZE 1000CC PETROL Z 4WD', 'A210'),
+  ('TOYOTA', 'RAIZE 1200CC HYBRID G', 'A202A'),
+  ('TOYOTA', 'RAIZE 1200CC HYBRID Z', 'A202A'),
+  ('TOYOTA', 'RAIZE 1200CC PETROL G', 'A201A'),
+  ('TOYOTA', 'RAIZE 1200CC PETROL X', 'A201A'),
+  ('TOYOTA', 'RAIZE 1200CC PETROL Z', 'A201A'),
+  ('HONDA', 'VEZEL 1500CC HYBRID E: HEV X', null),
+  ('HONDA', 'VEZEL 1500CC HYBRID E: HEV X HUNT', null),
+  ('HONDA', 'VEZEL 1500CC HYBRID E: HEV Z', null),
+  ('HONDA', 'VEZEL 1500CC HYBRID E: HEV Z Premium Audio', null),
+  ('HONDA', 'VEZEL 1500CC HYBRID E: HEV Z PLAY', null),
+  ('HONDA', 'VEZEL 1500CC HYBRID E: HEV RS', null),
+  ('SUZUKI', 'Wagon R HYBRID ZX 2WD CVT', null),
+  ('SUZUKI', 'Wagon R HYBRID ZX 4WD CVT', null),
+  ('SUZUKI', 'Wagon R ZL 2WD', null),
+  ('SUZUKI', 'Wagon R ZL 4WD', null),
+  ('TOYOTA', 'YARIS CROSS 1500CC HYBRID G', null),
+  ('TOYOTA', 'YARIS CROSS 1500CC HYBRID X', null),
+  ('TOYOTA', 'YARIS CROSS 1500CC HYBRID Z', null),
+  ('TOYOTA', 'YARIS CROSS 1500CC HYBRID Z ADVENTURE', null),
+  ('TOYOTA', 'YARIS HYBRID 1500CC HYBRID G', '6AA-MXPH14- AHXGB'),
+  ('TOYOTA', 'YARIS HYBRID 1500CC HYBRID X', '6AA-MXPH14- AHXNB'),
+  ('TOYOTA', 'YARIS HYBRID 1500CC HYBRID Z', '6AA-MXPH14- AHXEB'),
+  ('TOYOTA', 'YARIS PETROL 1000CC PETROL G', '5BA-KSP210- AHXGK'),
+  ('TOYOTA', 'YARIS PETROL 1000CC PETROL X', '5BA-KSP210- AHXNK'),
+  ('TOYOTA', 'Crown Z (hybrid car)', null),
+  ('SUZUKI', 'ALTO HYBRID X 2WD/CVT', null),
+  ('SUZUKI', 'ALTO HYBRID X 4WD/CVT', null),
+  ('SUZUKI', 'ALTO HYBRID S 2WD/CVT', null),
+  ('SUZUKI', 'ALTO HYBRID S 4WD/CVT', null),
+  ('SUZUKI', 'ALTO L 2WD/CVT', null),
+  ('SUZUKI', 'ALTO L 4WD/CVT', null),
+  ('SUZUKI', 'ALTO L 2WD/CVT Upgraded', null),
+  ('SUZUKI', 'ALTO L 4WD/CVT Upgraded', null),
+  ('SUZUKI', 'ALTO A 2WD/CVT', null),
+  ('SUZUKI', 'ALTO A 4WD/CVT', null),
+  ('TOYOTA', 'PIXIS EPOCH B SA III 2WD', null),
+  ('TOYOTA', 'PIXIS EPOCH L SA III 2WD', null),
+  ('TOYOTA', 'PIXIS EPOCH X SA III 2WD', null),
+  ('TOYOTA', 'PIXIS EPOCH G SA III 2WD', null),
+  ('MERCEDEZ', 'CLA 180', null),
+  ('NISSAN', 'AURA G', 'FE13'),
+  ('NISSAN', 'AURA G Leather Edition', 'FE13'),
+  ('NISSAN', 'AURA G 90 Aniversary', 'FE13'),
+  ('NISSAN', 'AURA NISMO', 'FE13'),
+  ('NISSAN', 'AURA AUTECH', 'FE13'),
+  ('NISSAN', 'AURA AUTECH SPORTS', 'FE13'),
+  ('DAIHATSU', 'TAFT X', null),
+  ('DAIHATSU', 'TAFT X TURBO', null),
+  ('DAIHATSU', 'TAFT G 2WD', null),
+  ('DAIHATSU', 'TAFT G "Chrome Venture"', null),
+  ('DAIHATSU', 'TAFT G "Dark Chrome Venture"', null),
+  ('DAIHATSU', 'TAFT G TURBO', null),
+  ('DAIHATSU', 'TAFT G TURBO "Chrome Venture"', null),
+  ('DAIHATSU', 'TAFT G TURBO "Chrome Venture" 4WD', null),
+  ('DAIHATSU', 'TAFT G TURBO "Dark Chrome Venture"', null),
+  ('AUDI', 'Audi Q3 Sportback', null),
+  ('SUZUKI', 'SWIFT HYBRID MZ 2WD/CVT', null),
+  ('SUZUKI', 'SWIFT HYBRID MZ 4WD/CVT', null),
+  ('SUZUKI', 'SWIFT HYBRID MX 2WD/5MT', null),
+  ('SUZUKI', 'SWIFT HYBRID MX 2WD/CVT', null),
+  ('SUZUKI', 'SWIFT HYBRID MX 4WD/CVT', null),
+  ('SUZUKI', 'SWIFT XG 2WD/CVT', null),
+  ('SUZUKI', 'SWIFT XG 4WD/CVT', null),
+  ('DAIHATSU', 'Mira e:s B "SA III" 2WD', null),
+  ('DAIHATSU', 'Mira e:s L "SA III" 2WD', null),
+  ('DAIHATSU', 'Mira e:s X "SA III" 2WD', null),
+  ('DAIHATSU', 'Mira e:s G "SA III" 2WD', null),
+  ('TOYOTA', 'Roomy Custom G T', null),
+  ('TOYOTA', 'Roomy Custom G 2WD', null),
+  ('TOYOTA', 'Roomy G', null),
+  ('TOYOTA', 'Roomy GT', null),
+  ('TOYOTA', 'Roomy X', null),
+  ('AUDI', 'Audi A3', null),
+  ('SUZUKI', 'Suzuki Jimny XG', null),
+  ('SUZUKI', 'Suzuki Jimny XL', null),
+  ('SUZUKI', 'Suzuki Jimny XC', null),
+  ('NISSAN', 'Nissan Dayz Highway Star X ProPilot Edition', '5AA-B44W'),
+  ('NISSAN', 'Nissan Dayz Highway Star G Turbo', null),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo Special Standard Roof 2WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo Special Standard Roof 4WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo Special High Roof 2WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo Special High Roof 4WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo Standard Roof 2WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo Standard Roof 4WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo High Roof 2WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY WAGON PZ Turbo High Roof 4WD', '3BA-DA17W'),
+  ('SUZUKI', 'EVERY JOIN Turbo (High Roof) 2WD', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY JOIN Turbo (High Roof) 4WD', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY JOIN (high roof) 2WD MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY JOIN (high roof) 4WD MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY JOIN (high roof) 2WD CVT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY JOIN (high roof) 4WD CVT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PC (High roof) 2WD 5MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PC (High roof) 4WD 5MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PC (High roof) 2WD CVT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PC (High roof) 4WD CVT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA Limited (High Roof) 2WD 5MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA Limited (High Roof) 4WD 5MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA Limited (High Roof) 2WD CVT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA Limited (High Roof) 4WD CVT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA (High Roof) 2WD 5MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA (High Roof) 4WD 5MT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA (High Roof) 2WD CVT', '3BD-DA17V'),
+  ('SUZUKI', 'EVERY PA (High Roof) 4WD CVT', '3BD-DA17V'),
+  ('TOYOTA', 'Land Cruiser Prado 150 Petrol TRJ150 TX L Package 7 Seater', '3BA-TRJ150W-GKTEK'),
+  ('TOYOTA', 'Land Cruiser Prado 250 Petrol', 'TRJ250W');
 
 -- ============ Vehicles (chassis number is the primary key) ============
 create table vehicles (
   chassis_number text primary key,
   supplier_id uuid not null references suppliers (id),
-  make text not null,
   model_id uuid not null references vehicle_models (id),
   year int,
   color text,
@@ -482,7 +493,7 @@ create table sale_receipts (
 create view vehicle_pnl as
 select
   v.chassis_number,
-  v.make,
+  vm.make,
   vm.name as model,
   v.year,
   v.vehicle_status,
@@ -515,6 +526,13 @@ left join (
   group by sale_id
 ) rec on rec.sale_id = s.id;
 
+-- "Native" balances are meant to be read in the entity's own primary_currency. When that
+-- currency is LKR, it IS the system's base currency, so every transfer already has an
+-- LKR-equivalent (amount_lkr) regardless of what currency it was actually entered in —
+-- native should equal the LKR total in that case, not just the subset literally entered
+-- as "LKR". For a non-LKR entity (e.g. a JPY supplier) there's no such universal
+-- conversion available, so native there stays limited to transfers actually recorded in
+-- that exact currency.
 create view cash_entity_balance as
 select
   ce.id as entity_id,
@@ -525,9 +543,14 @@ select
   coalesce(in_lkr.total, 0) as total_in_lkr,
   coalesce(out_lkr.total, 0) as total_out_lkr,
   coalesce(in_lkr.total, 0) - coalesce(out_lkr.total, 0) as balance_lkr,
-  coalesce(in_native.total, 0) as total_in_native,
-  coalesce(out_native.total, 0) as total_out_native,
-  coalesce(in_native.total, 0) - coalesce(out_native.total, 0) as balance_native
+  case when ce.primary_currency = 'LKR' then coalesce(in_lkr.total, 0) else coalesce(in_native.total, 0) end
+    as total_in_native,
+  case when ce.primary_currency = 'LKR' then coalesce(out_lkr.total, 0) else coalesce(out_native.total, 0) end
+    as total_out_native,
+  case
+    when ce.primary_currency = 'LKR' then coalesce(in_lkr.total, 0) - coalesce(out_lkr.total, 0)
+    else coalesce(in_native.total, 0) - coalesce(out_native.total, 0)
+  end as balance_native
 from cash_entities ce
 left join (
   select destination_entity_id, sum(amount_lkr) as total

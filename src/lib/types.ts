@@ -33,7 +33,8 @@ export type CashEntityType =
   | "INVESTOR"
   | "BANK"
   | "CLEARING_AGENT"
-  | "CASH";
+  | "CASH"
+  | "INTERNAL";
 
 export const CASH_ENTITY_TYPE_LABEL: Record<CashEntityType, string> = {
   GOVERNMENT: "Government",
@@ -45,6 +46,7 @@ export const CASH_ENTITY_TYPE_LABEL: Record<CashEntityType, string> = {
   BANK: "Bank",
   CLEARING_AGENT: "Clearing Agent",
   CASH: "Cash",
+  INTERNAL: "Internal",
 };
 
 export type TransferMethod = "TT" | "LC" | "CASH" | "BANK_TRANSFER" | "OTHER";
@@ -70,6 +72,7 @@ export type CashEntity = {
   name: string;
   type: CashEntityType;
   direction: CashEntityDirection;
+  is_system: boolean;
   logo_path: string | null;
   primary_currency: string;
   supplier_id: string | null;
@@ -127,13 +130,14 @@ export type CostHead = {
 
 export type VehicleModel = {
   id: string;
+  make: string;
   name: string;
+  chassis_code: string | null;
 };
 
 export type Vehicle = {
   chassis_number: string;
   supplier_id: string;
-  make: string;
   model_id: string;
   year: number | null;
   color: string | null;

@@ -32,6 +32,7 @@ export default function VehicleExpenseForm({
   const sourceOptions = entities.filter((e) => e.direction !== "DESTINATION_ONLY");
   const destinationOptions = entities.filter((e) => e.direction !== "SOURCE_ONLY");
   const defaultSource = sourceOptions.find((e) => e.type === "CASH") ?? sourceOptions[0];
+  const vehiclePurchasesEntity = entities.find((e) => e.name === "Vehicle Purchases");
 
   const [costHeadId, setCostHeadId] = useState(costHeads[0]?.id ?? "");
   const [amount, setAmount] = useState("");
@@ -41,6 +42,7 @@ export default function VehicleExpenseForm({
   const [sourceId, setSourceId] = useState(defaultSource?.id ?? "");
   const [destinationId, setDestinationId] = useState("");
   const [destinationTouched, setDestinationTouched] = useState(false);
+  const [fundFromSupplier, setFundFromSupplier] = useState(false);
   const [method, setMethod] = useState<TransferMethod>("CASH");
   const [dateRecorded, setDateRecorded] = useState(() => new Date().toISOString().slice(0, 10));
   const [remarks, setRemarks] = useState("");
@@ -49,6 +51,8 @@ export default function VehicleExpenseForm({
   const [saving, setSaving] = useState(false);
 
   const groups = Array.from(new Set(costHeads.map((c) => c.group_name)));
+  const selectedHead = costHeads.find((c) => c.id === costHeadId);
+  const isSupplierFundableHead = selectedHead?.name === "LC Amount" || selectedHead?.name === "TT Amount";
 
   function handleCurrencyChange(value: string, touched: boolean) {
     setCurrency(value);
@@ -70,12 +74,18 @@ export default function VehicleExpenseForm({
 
   function handleCostHeadChange(newCostHeadId: string) {
     setCostHeadId(newCostHeadId);
-    if (destinationTouched) return;
 
     const head = costHeads.find((c) => c.id === newCostHeadId);
+    const isSupplierFundable = head?.name === "LC Amount" || head?.name === "TT Amount";
+    if (!isSupplierFundable && fundFromSupplier) {
+      setFundFromSupplier(false);
+      setSourceId(defaultSource?.id ?? "");
+    }
+
+    if (destinationTouched) return;
     if (!head) return;
 
-    if ((head.name === "LC Amount" || head.name === "TT Amount") && supplierEntityId) {
+    if (isSupplierFundable && supplierEntityId) {
       applyDestination(supplierEntityId, false);
       return;
     }
@@ -84,6 +94,20 @@ export default function VehicleExpenseForm({
     if (defaultName) {
       const match = entities.find((e) => e.name === defaultName);
       if (match) applyDestination(match.id, false);
+    }
+  }
+
+  function handleFundFromSupplierToggle(checked: boolean) {
+    setFundFromSupplier(checked);
+    if (checked && supplierEntityId && vehiclePurchasesEntity) {
+      setSourceId(supplierEntityId);
+      setDestinationId(vehiclePurchasesEntity.id);
+      setDestinationTouched(true);
+      const supplierEntity = entities.find((e) => e.id === supplierEntityId);
+      if (supplierEntity) handleCurrencyChange(supplierEntity.primary_currency, false);
+    } else {
+      setSourceId(defaultSource?.id ?? "");
+      if (supplierEntityId) applyDestination(supplierEntityId, false);
     }
   }
 
@@ -219,8 +243,23 @@ export default function VehicleExpenseForm({
           className="input disabled:bg-gray-100 disabled:text-gray-400"
         />
       </Field>
+      {isSupplierFundableHead && supplierEntityId && vehiclePurchasesEntity && (
+        <label className="col-span-4 flex items-center gap-2 text-sm text-gray-700">
+          <input
+            type="checkbox"
+            checked={fundFromSupplier}
+            onChange={(e) => handleFundFromSupplierToggle(e.target.checked)}
+          />
+          Fund from supplier&rsquo;s existing balance (reduces the supplier&rsquo;s balance instead of paying from a bank/cash source)
+        </label>
+      )}
       <Field label="Source (paid from)">
-        <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className="input">
+        <select
+          value={sourceId}
+          onChange={(e) => setSourceId(e.target.value)}
+          disabled={fundFromSupplier}
+          className="input disabled:bg-gray-100 disabled:text-gray-400"
+        >
           {sourceOptions.map((en) => (
             <option key={en.id} value={en.id}>
               {en.name}
@@ -233,7 +272,8 @@ export default function VehicleExpenseForm({
           required
           value={destinationId}
           onChange={(e) => applyDestination(e.target.value, true)}
-          className="input"
+          disabled={fundFromSupplier}
+          className="input disabled:bg-gray-100 disabled:text-gray-400"
         >
           <option value="">Select…</option>
           {destinationOptions.map((en) => (

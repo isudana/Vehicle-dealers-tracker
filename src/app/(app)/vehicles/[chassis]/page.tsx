@@ -118,7 +118,7 @@ export default async function VehicleDetailPage({
         <div className="mt-2 flex items-center justify-between">
           <h1 className="text-lg font-semibold text-gray-900">
             {vehicle.year ? `${vehicle.year} ` : ""}
-            {vehicle.make} {vehicle.vehicle_models?.name}
+            {vehicle.vehicle_models?.make} {vehicle.vehicle_models?.name}
           </h1>
           <span className="rounded-full bg-gray-100 px-2 py-1 text-xs font-medium text-gray-700">
             {VEHICLE_STATUS_LABEL[vehicle.vehicle_status]}

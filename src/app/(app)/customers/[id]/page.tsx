@@ -73,7 +73,7 @@ export default async function CustomerDetailPage({ params }: { params: Promise<{
                         className="text-gray-900 hover:underline"
                       >
                         {s.vehicles?.year ? `${s.vehicles.year} ` : ""}
-                        {s.vehicles?.make} {s.vehicles?.vehicle_models?.name}
+                        {s.vehicles?.vehicle_models?.make} {s.vehicles?.vehicle_models?.name}
                       </Link>
                     </td>
                     <td className="px-4 py-2 text-gray-600">{s.payment_type}</td>

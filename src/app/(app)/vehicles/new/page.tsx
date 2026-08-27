@@ -14,7 +14,6 @@ export default function NewVehiclePage() {
   const [form, setForm] = useState({
     chassis_number: "",
     supplier_id: "",
-    make: "",
     model_id: "",
     year: "",
     color: "",
@@ -41,6 +40,7 @@ export default function NewVehiclePage() {
     supabase
       .from("vehicle_models")
       .select("*")
+      .order("make")
       .order("name")
       .then(({ data }) => {
         setModels(data ?? []);
@@ -75,7 +75,6 @@ export default function NewVehiclePage() {
     const { error } = await supabase.from("vehicles").insert({
       chassis_number: form.chassis_number.trim(),
       supplier_id: form.supplier_id,
-      make: form.make,
       model_id: form.model_id,
       year: form.year ? Number(form.year) : null,
       color: form.color || null,
@@ -133,31 +132,33 @@ export default function NewVehiclePage() {
           )}
         </Field>
 
-        <div className="grid grid-cols-2 gap-4">
-          <Field label="Make">
-            <input required value={form.make} onChange={(e) => update("make", e.target.value)} className="input" />
-          </Field>
-          <Field label="Model">
-            {models.length === 0 ? (
-              <p className="text-sm text-amber-700">
-                No models yet — <Link href="/settings" className="underline">add one in Settings</Link>.
-              </p>
-            ) : (
-              <select
-                required
-                value={form.model_id}
-                onChange={(e) => update("model_id", e.target.value)}
-                className="input"
-              >
-                {models.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            )}
-          </Field>
-        </div>
+        <Field label="Model">
+          {models.length === 0 ? (
+            <p className="text-sm text-amber-700">
+              No models yet — <Link href="/settings" className="underline">add one in Settings</Link>.
+            </p>
+          ) : (
+            <select
+              required
+              value={form.model_id}
+              onChange={(e) => update("model_id", e.target.value)}
+              className="input"
+            >
+              {Array.from(new Set(models.map((m) => m.make))).map((make) => (
+                <optgroup key={make} label={make}>
+                  {models
+                    .filter((m) => m.make === make)
+                    .map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                        {m.chassis_code ? ` (${m.chassis_code})` : ""}
+                      </option>
+                    ))}
+                </optgroup>
+              ))}
+            </select>
+          )}
+        </Field>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Year">

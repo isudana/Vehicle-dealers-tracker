@@ -240,7 +240,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                     </td>
                     <td className="px-4 py-2 text-gray-600">
                       {v.year ? `${v.year} ` : ""}
-                      {v.make} {v.vehicle_models?.name}
+                      {v.vehicle_models?.make} {v.vehicle_models?.name}
                     </td>
                     <td className="px-4 py-2 text-gray-600">{VEHICLE_STATUS_LABEL[v.vehicle_status]}</td>
                   </tr>
