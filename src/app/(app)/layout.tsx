@@ -1,10 +1,18 @@
+import { createClient } from "@/lib/supabase/server";
+import { getPublicUrl } from "@/lib/storage";
+import type { AppSettings } from "@/lib/types";
 import NavBar from "@/components/NavBar";
 
-export default function AppLayout({ children }: { children: React.ReactNode }) {
+export default async function AppLayout({ children }: { children: React.ReactNode }) {
+  const supabase = await createClient();
+  const { data } = await supabase.from("app_settings").select("*").eq("id", 1).maybeSingle();
+  const settings = data as AppSettings | null;
+  const logoUrl = settings?.logo_path ? getPublicUrl(supabase, "app-branding", settings.logo_path) : null;
+
   return (
     <div className="flex min-h-screen flex-col bg-gray-50">
-      <NavBar />
-      <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6">{children}</main>
+      <NavBar appName={settings?.app_name ?? "Vehicle Import Tracker"} logoUrl={logoUrl} />
+      <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6">{children}</main>
     </div>
   );
 }

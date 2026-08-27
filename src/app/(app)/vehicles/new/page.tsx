@@ -1,22 +1,26 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import type { Supplier } from "@/lib/types";
+import type { Supplier, VehicleModel } from "@/lib/types";
 
 export default function NewVehiclePage() {
   const router = useRouter();
   const supabase = createClient();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [models, setModels] = useState<VehicleModel[]>([]);
   const [form, setForm] = useState({
     chassis_number: "",
     supplier_id: "",
     make: "",
-    model: "",
+    model_id: "",
     year: "",
     color: "",
     target_listing_price: "",
+    auction_price: "",
+    cif_price: "",
     purchase_date: "",
     expected_clearance_date: "",
   });
@@ -34,6 +38,16 @@ export default function NewVehiclePage() {
           setForm((f) => ({ ...f, supplier_id: data[0].id }));
         }
       });
+    supabase
+      .from("vehicle_models")
+      .select("*")
+      .order("name")
+      .then(({ data }) => {
+        setModels(data ?? []);
+        if (data && data.length > 0) {
+          setForm((f) => ({ ...f, model_id: data[0].id }));
+        }
+      });
   }, [supabase]);
 
   function update<K extends keyof typeof form>(key: K, value: string) {
@@ -49,6 +63,11 @@ export default function NewVehiclePage() {
       return;
     }
 
+    if (!form.model_id) {
+      setError("Add a vehicle model in Settings first before adding a vehicle.");
+      return;
+    }
+
     setSaving(true);
 
     const { data: userData } = await supabase.auth.getUser();
@@ -57,10 +76,12 @@ export default function NewVehiclePage() {
       chassis_number: form.chassis_number.trim(),
       supplier_id: form.supplier_id,
       make: form.make,
-      model: form.model,
+      model_id: form.model_id,
       year: form.year ? Number(form.year) : null,
       color: form.color || null,
       target_listing_price: form.target_listing_price ? Number(form.target_listing_price) : 0,
+      auction_price: form.auction_price ? Number(form.auction_price) : null,
+      cif_price: form.cif_price ? Number(form.cif_price) : null,
       purchase_date: form.purchase_date || null,
       expected_clearance_date: form.expected_clearance_date || null,
       created_by: userData.user?.id,
@@ -94,7 +115,7 @@ export default function NewVehiclePage() {
         <Field label="Supplier">
           {suppliers.length === 0 ? (
             <p className="text-sm text-amber-700">
-              No suppliers yet — add one on the Suppliers page first.
+              No suppliers yet — <Link href="/settings" className="underline">add one in Settings</Link>.
             </p>
           ) : (
             <select
@@ -117,7 +138,24 @@ export default function NewVehiclePage() {
             <input required value={form.make} onChange={(e) => update("make", e.target.value)} className="input" />
           </Field>
           <Field label="Model">
-            <input required value={form.model} onChange={(e) => update("model", e.target.value)} className="input" />
+            {models.length === 0 ? (
+              <p className="text-sm text-amber-700">
+                No models yet — <Link href="/settings" className="underline">add one in Settings</Link>.
+              </p>
+            ) : (
+              <select
+                required
+                value={form.model_id}
+                onChange={(e) => update("model_id", e.target.value)}
+                className="input"
+              >
+                {models.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            )}
           </Field>
         </div>
 
@@ -139,6 +177,27 @@ export default function NewVehiclePage() {
             className="input"
           />
         </Field>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Auction (FOB) price">
+            <input
+              type="number"
+              step="0.01"
+              value={form.auction_price}
+              onChange={(e) => update("auction_price", e.target.value)}
+              className="input"
+            />
+          </Field>
+          <Field label="CIF price">
+            <input
+              type="number"
+              step="0.01"
+              value={form.cif_price}
+              onChange={(e) => update("cif_price", e.target.value)}
+              className="input"
+            />
+          </Field>
+        </div>
 
         <div className="grid grid-cols-2 gap-4">
           <Field label="Purchase date">

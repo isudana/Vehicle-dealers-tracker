@@ -13,8 +13,14 @@ export const VEHICLE_STATUS_LABEL: Record<VehicleStatus, string> = {
 
 export type PaymentType = "DIRECT_CASH" | "LEASING" | "HYBRID";
 export type LeasingStatus = "NOT_APPLICABLE" | "PENDING" | "RECEIVED";
-export type AdvanceType = "DEPOSIT" | "REFUND";
+export type AdvanceType = "TT_DEPOSIT" | "LC_TRANSFER" | "REFUND";
 export type ReceiptMethod = "ADVANCE" | "DIRECT_CASH" | "LEASING_DISBURSAL";
+
+export const ADVANCE_TYPE_LABEL: Record<AdvanceType, string> = {
+  TT_DEPOSIT: "TT Deposit",
+  LC_TRANSFER: "LC Transfer",
+  REFUND: "Refund",
+};
 
 export const RECEIPT_METHOD_LABEL: Record<ReceiptMethod, string> = {
   ADVANCE: "Advance",
@@ -22,13 +28,18 @@ export const RECEIPT_METHOD_LABEL: Record<ReceiptMethod, string> = {
   LEASING_DISBURSAL: "Leasing Disbursal",
 };
 
+export const CURRENCIES = ["LKR", "JPY", "USD"] as const;
+export type Currency = (typeof CURRENCIES)[number];
+
 export type Supplier = {
   id: string;
   name: string;
   country: string;
+  primary_currency: string;
   contact_person: string | null;
   phone: string | null;
   email: string | null;
+  logo_path: string | null;
 };
 
 export type CostHead = {
@@ -37,20 +48,43 @@ export type CostHead = {
   group_name: string;
 };
 
+export type VehicleModel = {
+  id: string;
+  name: string;
+};
+
 export type Vehicle = {
   chassis_number: string;
   supplier_id: string;
   make: string;
-  model: string;
+  model_id: string;
   year: number | null;
   color: string | null;
   target_listing_price: number;
+  auction_price: number | null;
+  cif_price: number | null;
   purchase_date: string | null;
   expected_clearance_date: string | null;
   vehicle_status: VehicleStatus;
   notes: string | null;
   created_at: string;
   suppliers?: Supplier | null;
+  vehicle_models?: VehicleModel | null;
+};
+
+export type VehiclePhoto = {
+  id: string;
+  chassis_number: string;
+  storage_path: string;
+  created_at: string;
+};
+
+export type VehicleDocument = {
+  id: string;
+  chassis_number: string;
+  storage_path: string;
+  file_name: string;
+  created_at: string;
 };
 
 export type VehicleExpense = {
@@ -58,8 +92,12 @@ export type VehicleExpense = {
   chassis_number: string;
   cost_head_id: string;
   amount: number;
+  currency: string;
+  exchange_rate_to_lkr: number;
+  amount_lkr: number;
   date_recorded: string;
   remarks: string | null;
+  attachment_path: string | null;
   cost_heads?: CostHead | null;
 };
 
@@ -69,10 +107,57 @@ export type SupplierAdvance = {
   type: AdvanceType;
   amount: number;
   currency: string;
+  exchange_rate_to_lkr: number;
+  amount_lkr: number;
   bank_reference: string | null;
-  exchange_rate: number | null;
   transfer_date: string;
   notes: string | null;
+  receipt_path: string | null;
+  lc_document_path: string | null;
+};
+
+export type CapitalInjection = {
+  id: string;
+  amount: number;
+  currency: string;
+  exchange_rate_to_lkr: number;
+  amount_lkr: number;
+  storage_location: string;
+  source: string | null;
+  injection_date: string;
+  notes: string | null;
+};
+
+export type OverheadCategory = {
+  id: string;
+  name: string;
+};
+
+export type OverheadExpense = {
+  id: string;
+  category_id: string;
+  amount: number;
+  currency: string;
+  exchange_rate_to_lkr: number;
+  amount_lkr: number;
+  expense_date: string;
+  remarks: string | null;
+  attachment_path: string | null;
+  overhead_categories?: OverheadCategory | null;
+};
+
+export type Resource = {
+  id: string;
+  title: string;
+  url: string;
+  description: string | null;
+  logo_path: string | null;
+};
+
+export type AppSettings = {
+  id: number;
+  app_name: string;
+  logo_path: string | null;
 };
 
 export type Customer = {
@@ -128,13 +213,29 @@ export type VehiclePnl = {
   projected_profit: number | null;
 };
 
+export type ModelSummary = {
+  model_id: string;
+  model: string;
+  total_vehicles: number;
+  available_count: number;
+  pending_payment_count: number;
+  sold_count: number;
+  total_landed_cost: number;
+  total_realized_profit: number;
+};
+
 export type SupplierBalance = {
   supplier_id: string;
   name: string;
-  total_deposits: number;
-  total_refunds: number;
-  total_deducted: number;
-  available_balance: number;
+  primary_currency: string;
+  total_deposits_lkr: number;
+  total_refunds_lkr: number;
+  total_deducted_lkr: number;
+  available_balance_lkr: number;
+  total_deposits_native: number;
+  total_refunds_native: number;
+  total_deducted_native: number;
+  available_balance_native: number;
 };
 
 export type ExecutiveSummary = {
@@ -142,6 +243,8 @@ export type ExecutiveSummary = {
   total_cash_received: number;
   total_realized_profit: number;
   outstanding_receivables: number;
+  total_capital_injected: number;
+  total_overhead_expenses: number;
 };
 
 export function formatMoney(amount: number, currency: string = "LKR") {

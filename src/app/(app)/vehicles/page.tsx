@@ -1,11 +1,23 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getPublicUrl } from "@/lib/storage";
 import { formatMoney, VEHICLE_STATUS_LABEL, type VehiclePnl } from "@/lib/types";
 
 export default async function VehiclesPage() {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("vehicle_pnl").select("*").order("chassis_number");
+  const [vehiclesRes, photosRes] = await Promise.all([
+    supabase.from("vehicle_pnl").select("*").order("chassis_number"),
+    supabase.from("vehicle_photos").select("chassis_number, storage_path").order("created_at"),
+  ]);
+  const { data, error } = vehiclesRes;
   const vehicles = (data ?? []) as VehiclePnl[];
+
+  const firstPhotoByChassis = new Map<string, string>();
+  for (const p of photosRes.data ?? []) {
+    if (!firstPhotoByChassis.has(p.chassis_number)) {
+      firstPhotoByChassis.set(p.chassis_number, p.storage_path);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -28,6 +40,7 @@ export default async function VehiclesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-gray-500">
+                <th className="px-4 py-2"></th>
                 <th className="px-4 py-2">Chassis No.</th>
                 <th className="px-4 py-2">Vehicle</th>
                 <th className="px-4 py-2">Status</th>
@@ -35,8 +48,22 @@ export default async function VehiclesPage() {
               </tr>
             </thead>
             <tbody>
-              {vehicles.map((v) => (
+              {vehicles.map((v) => {
+                const photoPath = firstPhotoByChassis.get(v.chassis_number);
+                return (
                 <tr key={v.chassis_number} className="border-t border-gray-100">
+                  <td className="px-4 py-2">
+                    {photoPath ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={getPublicUrl(supabase, "vehicle-photos", photoPath)}
+                        alt=""
+                        className="h-10 w-10 rounded-md object-cover"
+                      />
+                    ) : (
+                      <div className="h-10 w-10 rounded-md bg-gray-100" />
+                    )}
+                  </td>
                   <td className="px-4 py-2 text-gray-600">
                     <Link
                       href={`/vehicles/${encodeURIComponent(v.chassis_number)}`}
@@ -56,7 +83,8 @@ export default async function VehiclesPage() {
                   </td>
                   <td className="px-4 py-2 text-gray-600">{formatMoney(v.total_landed_cost)}</td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         )}

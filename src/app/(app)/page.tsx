@@ -4,6 +4,7 @@ import {
   formatMoney,
   VEHICLE_STATUS_LABEL,
   type ExecutiveSummary,
+  type ModelSummary,
   type VehiclePnl,
   type VehicleStatus,
 } from "@/lib/types";
@@ -18,13 +19,15 @@ const STATE_ORDER: VehicleStatus[] = [
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  const [summaryRes, vehiclesRes] = await Promise.all([
+  const [summaryRes, vehiclesRes, modelSummaryRes] = await Promise.all([
     supabase.from("executive_summary").select("*").single(),
     supabase.from("vehicle_pnl").select("*").order("chassis_number"),
+    supabase.from("model_summary").select("*"),
   ]);
 
   const summary = summaryRes.data as ExecutiveSummary | null;
   const vehicles = (vehiclesRes.data ?? []) as VehiclePnl[];
+  const modelSummaries = (modelSummaryRes.data ?? []) as ModelSummary[];
 
   return (
     <div className="space-y-6">
@@ -44,7 +47,7 @@ export default async function DashboardPage() {
         </p>
       )}
 
-      <div className="grid grid-cols-4 gap-4">
+      <div className="grid grid-cols-3 gap-4">
         <StatCard label="Total capital invested" value={formatMoney(summary?.total_capital_invested ?? 0)} />
         <StatCard label="Total cash received" value={formatMoney(summary?.total_cash_received ?? 0)} />
         <StatCard
@@ -57,6 +60,8 @@ export default async function DashboardPage() {
           value={formatMoney(summary?.outstanding_receivables ?? 0)}
           tone={summary && summary.outstanding_receivables > 0 ? "negative" : undefined}
         />
+        <StatCard label="Total capital injected" value={formatMoney(summary?.total_capital_injected ?? 0)} />
+        <StatCard label="Total overhead expenses" value={formatMoney(summary?.total_overhead_expenses ?? 0)} />
       </div>
 
       {STATE_ORDER.map((status) => (
@@ -66,6 +71,46 @@ export default async function DashboardPage() {
           rows={vehicles.filter((v) => v.vehicle_status === status)}
         />
       ))}
+
+      <ModelSummaryTable rows={modelSummaries} />
+    </div>
+  );
+}
+
+function ModelSummaryTable({ rows }: { rows: ModelSummary[] }) {
+  return (
+    <div className="rounded-lg border border-gray-200 bg-white">
+      <h2 className="border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-900">By Model</h2>
+      {rows.length === 0 ? (
+        <p className="px-4 py-6 text-sm text-gray-500">No vehicles yet.</p>
+      ) : (
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-gray-500">
+              <th className="px-4 py-2">Model</th>
+              <th className="px-4 py-2">Total</th>
+              <th className="px-4 py-2">Available</th>
+              <th className="px-4 py-2">Pending payment</th>
+              <th className="px-4 py-2">Sold</th>
+              <th className="px-4 py-2">Landed cost</th>
+              <th className="px-4 py-2">Realized profit</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((m) => (
+              <tr key={m.model_id} className="border-t border-gray-100">
+                <td className="px-4 py-2 text-gray-900">{m.model}</td>
+                <td className="px-4 py-2 text-gray-600">{m.total_vehicles}</td>
+                <td className="px-4 py-2 text-gray-600">{m.available_count}</td>
+                <td className="px-4 py-2 text-gray-600">{m.pending_payment_count}</td>
+                <td className="px-4 py-2 text-gray-600">{m.sold_count}</td>
+                <td className="px-4 py-2 text-gray-600">{formatMoney(m.total_landed_cost)}</td>
+                <td className="px-4 py-2 text-gray-600">{formatMoney(m.total_realized_profit)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

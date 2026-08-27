@@ -4,31 +4,24 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
-import { ADVANCE_TYPE_LABEL, CURRENCIES, type AdvanceType } from "@/lib/types";
+import { CURRENCIES, type OverheadCategory } from "@/lib/types";
 
-export default function SupplierAdvanceForm({
-  supplierId,
-  defaultCurrency,
-}: {
-  supplierId: string;
-  defaultCurrency: string;
-}) {
+export default function OverheadExpenseForm({ categories }: { categories: OverheadCategory[] }) {
   const router = useRouter();
   const supabase = createClient();
-  const [type, setType] = useState<AdvanceType>("TT_DEPOSIT");
+  const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
   const [amount, setAmount] = useState("");
-  const [currency, setCurrency] = useState(defaultCurrency);
-  const [exchangeRate, setExchangeRate] = useState(defaultCurrency === "LKR" ? "1" : "");
-  const [bankReference, setBankReference] = useState("");
-  const [transferDate, setTransferDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [receipt, setReceipt] = useState<File | null>(null);
-  const [lcDocument, setLcDocument] = useState<File | null>(null);
+  const [currency, setCurrency] = useState("LKR");
+  const [exchangeRate, setExchangeRate] = useState("1");
+  const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [remarks, setRemarks] = useState("");
+  const [attachment, setAttachment] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   function handleCurrencyChange(value: string) {
     setCurrency(value);
-    setExchangeRate(value === "LKR" ? "1" : "");
+    if (value === "LKR") setExchangeRate("1");
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -39,15 +32,14 @@ export default function SupplierAdvanceForm({
     const { data: userData } = await supabase.auth.getUser();
 
     const { data: inserted, error } = await supabase
-      .from("supplier_advances")
+      .from("overhead_expenses")
       .insert({
-        supplier_id: supplierId,
-        type,
+        category_id: categoryId,
         amount: Number(amount),
         currency,
         exchange_rate_to_lkr: currency === "LKR" ? 1 : Number(exchangeRate),
-        bank_reference: bankReference || null,
-        transfer_date: transferDate,
+        expense_date: expenseDate,
+        remarks: remarks || null,
         created_by: userData.user?.id,
       })
       .select("id")
@@ -59,49 +51,37 @@ export default function SupplierAdvanceForm({
       return;
     }
 
-    const updates: Record<string, string> = {};
-    try {
-      if (receipt) {
-        updates.receipt_path = await uploadFile(supabase, "receipt-attachments", inserted.id, receipt);
+    if (attachment) {
+      try {
+        const path = await uploadFile(supabase, "receipt-attachments", inserted.id, attachment);
+        await supabase.from("overhead_expenses").update({ attachment_path: path }).eq("id", inserted.id);
+      } catch (err) {
+        setSaving(false);
+        setError(err instanceof Error ? err.message : "Attachment upload failed");
+        return;
       }
-      if (lcDocument && type === "LC_TRANSFER") {
-        updates.lc_document_path = await uploadFile(supabase, "receipt-attachments", inserted.id, lcDocument);
-      }
-      if (Object.keys(updates).length > 0) {
-        await supabase.from("supplier_advances").update(updates).eq("id", inserted.id);
-      }
-    } catch (err) {
-      setSaving(false);
-      setError(err instanceof Error ? err.message : "Attachment upload failed");
-      return;
     }
 
     setSaving(false);
     setAmount("");
-    setBankReference("");
-    setReceipt(null);
-    setLcDocument(null);
+    setRemarks("");
+    setAttachment(null);
     router.refresh();
   }
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2 rounded-md border border-gray-200 p-3">
-      <Field label="Type">
-        <select value={type} onChange={(e) => setType(e.target.value as AdvanceType)} className="input">
-          {(Object.keys(ADVANCE_TYPE_LABEL) as AdvanceType[]).map((t) => (
-            <option key={t} value={t}>
-              {ADVANCE_TYPE_LABEL[t]}
+      <Field label="Category">
+        <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
+          {categories.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
             </option>
           ))}
         </select>
       </Field>
       <Field label="Date">
-        <input
-          type="date"
-          value={transferDate}
-          onChange={(e) => setTransferDate(e.target.value)}
-          className="input"
-        />
+        <input type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} className="input" />
       </Field>
       <Field label="Amount">
         <input
@@ -133,38 +113,23 @@ export default function SupplierAdvanceForm({
           className="input w-24 disabled:bg-gray-100 disabled:text-gray-400"
         />
       </Field>
-      <Field label="Bank reference">
-        <input
-          type="text"
-          value={bankReference}
-          onChange={(e) => setBankReference(e.target.value)}
-          className="input"
-        />
+      <Field label="Remarks">
+        <input type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} className="input" />
       </Field>
       <Field label="Receipt (optional)">
         <input
           type="file"
           accept="image/*,application/pdf"
-          onChange={(e) => setReceipt(e.target.files?.[0] ?? null)}
+          onChange={(e) => setAttachment(e.target.files?.[0] ?? null)}
           className="text-sm"
         />
       </Field>
-      {type === "LC_TRANSFER" && (
-        <Field label="LC document (optional)">
-          <input
-            type="file"
-            accept="image/*,application/pdf"
-            onChange={(e) => setLcDocument(e.target.files?.[0] ?? null)}
-            className="text-sm"
-          />
-        </Field>
-      )}
       <button
         type="submit"
         disabled={saving}
         className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
       >
-        {saving ? "…" : "Log transfer"}
+        {saving ? "…" : "Add expense"}
       </button>
       {error && <p className="w-full text-sm text-red-600">{error}</p>}
     </form>
