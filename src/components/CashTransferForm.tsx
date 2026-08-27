@@ -6,7 +6,13 @@ import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
 import { CURRENCIES, TRANSFER_METHOD_LABEL, type CashEntity, type TransferMethod } from "@/lib/types";
 
-export default function CashTransferForm({ entities }: { entities: CashEntity[] }) {
+export default function CashTransferForm({
+  entities,
+  onSuccess,
+}: {
+  entities: CashEntity[];
+  onSuccess?: () => void;
+}) {
   const router = useRouter();
   const supabase = createClient();
   const sourceOptions = entities.filter((e) => e.category !== "CASH_ENTITY");
@@ -99,6 +105,7 @@ export default function CashTransferForm({ entities }: { entities: CashEntity[] 
     setReceipt(null);
     setLcDocument(null);
     router.refresh();
+    onSuccess?.();
   }
 
   if (entities.length < 2 || sourceOptions.length === 0 || destinationOptions.length === 0) {

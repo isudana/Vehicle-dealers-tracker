@@ -9,6 +9,7 @@ import {
   formatMoney,
   type CashEntity,
   type CashEntityBalance,
+  type CashEntityCategory,
   type CashTransfer,
   type Sale,
 } from "@/lib/types";
@@ -38,6 +39,27 @@ export default async function CashEntityDetailPage({ params }: { params: Promise
   const transfers = (transfersRes.data ?? []) as CashTransfer[];
   const logoUrl = entity.logo_path ? getPublicUrl(supabase, "cash-entity-logos", entity.logo_path) : null;
 
+  const chassisByCashTransferId: Record<string, string> = {};
+  if (transfers.length > 0) {
+    const transferIds = transfers.map((t) => t.id);
+    const [vehicleExpensesRes, saleReceiptsRes] = await Promise.all([
+      supabase.from("vehicle_expenses").select("cash_transfer_id, chassis_number").in("cash_transfer_id", transferIds),
+      supabase.from("sale_receipts").select("cash_transfer_id, sales(chassis_number)").in("cash_transfer_id", transferIds),
+    ]);
+    for (const ve of (vehicleExpensesRes.data ?? []) as { cash_transfer_id: string; chassis_number: string }[]) {
+      chassisByCashTransferId[ve.cash_transfer_id] = ve.chassis_number;
+    }
+    for (const sr of (saleReceiptsRes.data ?? []) as {
+      cash_transfer_id: string;
+      sales: { chassis_number: string }[] | null;
+    }[]) {
+      const chassisNumber = sr.sales?.[0]?.chassis_number;
+      if (sr.cash_transfer_id && chassisNumber) {
+        chassisByCashTransferId[sr.cash_transfer_id] = chassisNumber;
+      }
+    }
+  }
+
   let pendingSettlements: Sale[] = [];
   if (entity.category === "LEASING_COMPANY") {
     const { data } = await supabase
@@ -57,8 +79,6 @@ export default async function CashEntityDetailPage({ params }: { params: Promise
       t.lc_document_path ? getSignedUrl(supabase, "receipt-attachments", t.lc_document_path) : Promise.resolve(null),
     ),
   );
-
-  const balanceLabel = entity.category === "CASH_ENTITY" ? "Cash Paid" : "Balance";
 
   return (
     <div className="space-y-6">
@@ -96,28 +116,23 @@ export default async function CashEntityDetailPage({ params }: { params: Promise
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
           In {entity.primary_currency}
         </p>
-        <div className="grid grid-cols-3 gap-4">
-          <SummaryCard label="Total in" value={formatMoney(balance?.total_in_native ?? 0, entity.primary_currency)} />
-          <SummaryCard label="Total out" value={formatMoney(balance?.total_out_native ?? 0, entity.primary_currency)} />
-          <SummaryCard
-            label={balanceLabel}
-            value={formatMoney(balance?.balance_native ?? 0, entity.primary_currency)}
-            highlight={(balance?.balance_native ?? 0) < 0}
-          />
-        </div>
+        <BalanceCards
+          category={entity.category}
+          totalIn={balance?.total_in_native ?? 0}
+          totalOut={balance?.total_out_native ?? 0}
+          balance={balance?.balance_native ?? 0}
+          currency={entity.primary_currency}
+        />
       </div>
 
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">In LKR (all currencies)</p>
-        <div className="grid grid-cols-3 gap-4">
-          <SummaryCard label="Total in" value={formatMoney(balance?.total_in_lkr ?? 0)} />
-          <SummaryCard label="Total out" value={formatMoney(balance?.total_out_lkr ?? 0)} />
-          <SummaryCard
-            label={balanceLabel}
-            value={formatMoney(balance?.balance_lkr ?? 0)}
-            highlight={(balance?.balance_lkr ?? 0) < 0}
-          />
-        </div>
+        <BalanceCards
+          category={entity.category}
+          totalIn={balance?.total_in_lkr ?? 0}
+          totalOut={balance?.total_out_lkr ?? 0}
+          balance={balance?.balance_lkr ?? 0}
+        />
       </div>
 
       {entity.category === "LEASING_COMPANY" && (
@@ -179,6 +194,7 @@ export default async function CashEntityDetailPage({ params }: { params: Promise
                   <th className="px-4 py-2">Date</th>
                   <th className="px-4 py-2">From</th>
                   <th className="px-4 py-2">To</th>
+                  <th className="px-4 py-2">Vehicle</th>
                   <th className="px-4 py-2">Method</th>
                   <th className="px-4 py-2">Bank reference</th>
                   <th className="px-4 py-2">Amount</th>
@@ -194,6 +210,18 @@ export default async function CashEntityDetailPage({ params }: { params: Promise
                     <td className="px-4 py-2 text-gray-600">{t.transfer_date}</td>
                     <td className="px-4 py-2 text-gray-600">{t.source_entity?.name ?? "—"}</td>
                     <td className="px-4 py-2 text-gray-600">{t.destination_entity?.name ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {chassisByCashTransferId[t.id] ? (
+                        <Link
+                          href={`/vehicles/${encodeURIComponent(chassisByCashTransferId[t.id])}`}
+                          className="text-gray-900 hover:underline"
+                        >
+                          {chassisByCashTransferId[t.id]}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-gray-600">{TRANSFER_METHOD_LABEL[t.method]}</td>
                     <td className="px-4 py-2 text-gray-600">{t.bank_reference ?? "—"}</td>
                     <td className="px-4 py-2 text-gray-900">{formatMoney(t.amount, t.currency)}</td>
@@ -247,6 +275,45 @@ function SummaryCard({ label, value, highlight }: { label: string; value: string
     <div className="rounded-lg border border-gray-200 bg-white p-4">
       <p className="text-xs text-gray-500">{label}</p>
       <p className={`mt-1 text-lg font-semibold ${highlight ? "text-red-700" : "text-gray-900"}`}>{value}</p>
+    </div>
+  );
+}
+
+function BalanceCards({
+  category,
+  totalIn,
+  totalOut,
+  balance,
+  currency,
+}: {
+  category: CashEntityCategory;
+  totalIn: number;
+  totalOut: number;
+  balance: number;
+  currency?: string;
+}) {
+  if (category === "CASH_ENTITY") {
+    return (
+      <div className="grid grid-cols-1 gap-4">
+        <SummaryCard label="Cash Paid" value={formatMoney(balance, currency)} />
+      </div>
+    );
+  }
+
+  if (category === "LEASING_COMPANY") {
+    const cashReceived = -balance;
+    return (
+      <div className="grid grid-cols-1 gap-4">
+        <SummaryCard label="Cash Received" value={formatMoney(cashReceived, currency)} highlight={cashReceived < 0} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-3 gap-4">
+      <SummaryCard label="Total in" value={formatMoney(totalIn, currency)} />
+      <SummaryCard label="Total out" value={formatMoney(totalOut, currency)} />
+      <SummaryCard label="Balance" value={formatMoney(balance, currency)} highlight={balance < 0} />
     </div>
   );
 }

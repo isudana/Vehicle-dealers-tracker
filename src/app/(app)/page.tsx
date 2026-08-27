@@ -3,9 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import {
   formatMoney,
   VEHICLE_STATUS_LABEL,
+  type CashEntity,
+  type CashEntityBalance,
   type ExecutiveSummary,
-  type ModelSummary,
-  type VehiclePnl,
   type VehicleStatus,
 } from "@/lib/types";
 
@@ -19,31 +19,49 @@ const STATE_ORDER: VehicleStatus[] = [
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  const [summaryRes, vehiclesRes, modelSummaryRes] = await Promise.all([
-    supabase.from("executive_summary").select("*").single(),
-    supabase.from("vehicle_pnl").select("*").order("chassis_number"),
-    supabase.from("model_summary").select("*"),
-  ]);
+  const [summaryRes, vehicleStatusesRes, supplierBalancesRes, leasingCompaniesRes, pendingSalesRes] =
+    await Promise.all([
+      supabase.from("executive_summary").select("*").single(),
+      supabase.from("vehicle_pnl").select("vehicle_status"),
+      supabase
+        .from("cash_entity_balance")
+        .select("*")
+        .eq("type", "SUPPLIER")
+        .eq("category", "CASH_ACCOUNT")
+        .order("name"),
+      supabase.from("cash_entities").select("*").eq("category", "LEASING_COMPANY").order("name"),
+      supabase.from("sales").select("leasing_company_id").eq("leasing_status", "PENDING"),
+    ]);
 
   const summary = summaryRes.data as ExecutiveSummary | null;
-  const vehicles = (vehiclesRes.data ?? []) as VehiclePnl[];
-  const modelSummaries = (modelSummaryRes.data ?? []) as ModelSummary[];
+  const vehicleStatuses = (vehicleStatusesRes.data ?? []) as { vehicle_status: VehicleStatus }[];
+  const supplierBalances = (supplierBalancesRes.data ?? []) as CashEntityBalance[];
+  const leasingCompanies = (leasingCompaniesRes.data ?? []) as CashEntity[];
+
+  const countByStatus: Record<VehicleStatus, number> = {
+    BOUGHT_NOT_RECEIVED: 0,
+    IN_STOCK: 0,
+    SOLD_PENDING_PAYMENT: 0,
+    SOLD_FULLY_CLOSED: 0,
+  };
+  for (const v of vehicleStatuses) {
+    countByStatus[v.vehicle_status] = (countByStatus[v.vehicle_status] ?? 0) + 1;
+  }
+  const totalSold = countByStatus.SOLD_PENDING_PAYMENT + countByStatus.SOLD_FULLY_CLOSED;
+
+  const pendingCountByLeasingCompanyId: Record<string, number> = {};
+  for (const s of (pendingSalesRes.data ?? []) as { leasing_company_id: string | null }[]) {
+    if (!s.leasing_company_id) continue;
+    pendingCountByLeasingCompanyId[s.leasing_company_id] = (pendingCountByLeasingCompanyId[s.leasing_company_id] ?? 0) + 1;
+  }
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-semibold text-gray-900">Executive Dashboard</h1>
-        <Link
-          href="/vehicles/new"
-          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
-        >
-          + Add vehicle
-        </Link>
-      </div>
+      <h1 className="text-lg font-semibold text-gray-900">Executive Dashboard</h1>
 
-      {(summaryRes.error || vehiclesRes.error) && (
+      {(summaryRes.error || vehicleStatusesRes.error) && (
         <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">
-          {summaryRes.error?.message ?? vehiclesRes.error?.message}
+          {summaryRes.error?.message ?? vehicleStatusesRes.error?.message}
         </p>
       )}
 
@@ -64,53 +82,95 @@ export default async function DashboardPage() {
         <StatCard label="Total overhead expenses" value={formatMoney(summary?.total_overhead_expenses ?? 0)} />
       </div>
 
-      {STATE_ORDER.map((status) => (
-        <VehicleTable
-          key={status}
-          title={VEHICLE_STATUS_LABEL[status]}
-          rows={vehicles.filter((v) => v.vehicle_status === status)}
-        />
-      ))}
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium text-gray-900">Vehicle stock</h2>
+        <div className="grid grid-cols-4 gap-4">
+          {STATE_ORDER.map((status) => (
+            <StatCard key={status} label={VEHICLE_STATUS_LABEL[status]} value={String(countByStatus[status])} />
+          ))}
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <StatCard label="Pending from suppliers" value={String(countByStatus.BOUGHT_NOT_RECEIVED)} />
+          <StatCard label="Total sold" value={String(totalSold)} />
+        </div>
+      </section>
 
-      <ModelSummaryTable rows={modelSummaries} />
-    </div>
-  );
-}
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium text-gray-900">Supplier balances</h2>
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          {supplierBalances.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-gray-500">No suppliers yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500">
+                  <th className="px-4 py-2">Name</th>
+                  <th className="px-4 py-2">Balance (native)</th>
+                  <th className="px-4 py-2">Balance (LKR)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {supplierBalances.map((s) => (
+                  <tr key={s.entity_id} className="border-t border-gray-100">
+                    <td className="px-4 py-2">
+                      <Link href={`/suppliers/${s.supplier_id}`} className="text-gray-900 hover:underline">
+                        {s.name}
+                      </Link>
+                    </td>
+                    <td className={`px-4 py-2 ${s.balance_native < 0 ? "text-red-700" : "text-gray-600"}`}>
+                      {formatMoney(s.balance_native, s.primary_currency)}
+                    </td>
+                    <td className={`px-4 py-2 font-medium ${s.balance_lkr < 0 ? "text-red-700" : "text-gray-900"}`}>
+                      {formatMoney(s.balance_lkr)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
 
-function ModelSummaryTable({ rows }: { rows: ModelSummary[] }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white">
-      <h2 className="border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-900">By Model</h2>
-      {rows.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-gray-500">No vehicles yet.</p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500">
-              <th className="px-4 py-2">Model</th>
-              <th className="px-4 py-2">Total</th>
-              <th className="px-4 py-2">Available</th>
-              <th className="px-4 py-2">Pending payment</th>
-              <th className="px-4 py-2">Sold</th>
-              <th className="px-4 py-2">Landed cost</th>
-              <th className="px-4 py-2">Realized profit</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((m) => (
-              <tr key={m.model_id} className="border-t border-gray-100">
-                <td className="px-4 py-2 text-gray-900">{m.model}</td>
-                <td className="px-4 py-2 text-gray-600">{m.total_vehicles}</td>
-                <td className="px-4 py-2 text-gray-600">{m.available_count}</td>
-                <td className="px-4 py-2 text-gray-600">{m.pending_payment_count}</td>
-                <td className="px-4 py-2 text-gray-600">{m.sold_count}</td>
-                <td className="px-4 py-2 text-gray-600">{formatMoney(m.total_landed_cost)}</td>
-                <td className="px-4 py-2 text-gray-600">{formatMoney(m.total_realized_profit)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <section className="space-y-3">
+        <h2 className="text-sm font-medium text-gray-900">Leasing company pending payments</h2>
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          {leasingCompanies.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-gray-500">No leasing companies yet.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500">
+                  <th className="px-4 py-2">Name</th>
+                  <th className="px-4 py-2">Pending settlements</th>
+                </tr>
+              </thead>
+              <tbody>
+                {leasingCompanies.map((c) => {
+                  const pendingCount = pendingCountByLeasingCompanyId[c.id] ?? 0;
+                  return (
+                    <tr key={c.id} className="border-t border-gray-100">
+                      <td className="px-4 py-2">
+                        <Link href={`/cash/${c.id}`} className="text-gray-900 hover:underline">
+                          {c.name}
+                        </Link>
+                      </td>
+                      <td className="px-4 py-2">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                            pendingCount > 0 ? "bg-amber-100 text-amber-700" : "bg-gray-100 text-gray-500"
+                          }`}
+                        >
+                          {pendingCount}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -134,65 +194,6 @@ function StatCard({
       >
         {value}
       </p>
-    </div>
-  );
-}
-
-function VehicleTable({ title, rows }: { title: string; rows: VehiclePnl[] }) {
-  return (
-    <div className="rounded-lg border border-gray-200 bg-white">
-      <h2 className="border-b border-gray-200 px-4 py-3 text-sm font-medium text-gray-900">
-        {title} <span className="text-gray-400">({rows.length})</span>
-      </h2>
-      {rows.length === 0 ? (
-        <p className="px-4 py-6 text-sm text-gray-500">No vehicles in this state.</p>
-      ) : (
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-gray-500">
-              <th className="px-4 py-2">Vehicle</th>
-              <th className="px-4 py-2">Chassis No.</th>
-              <th className="px-4 py-2">Landed cost</th>
-              <th className="px-4 py-2">Sale price</th>
-              <th className="px-4 py-2">Balance due</th>
-              <th className="px-4 py-2">{rows[0]?.sale_id ? "Net profit" : "Projected profit"}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((v) => {
-              const profit = v.net_profit ?? v.projected_profit;
-              return (
-                <tr key={v.chassis_number} className="border-t border-gray-100">
-                  <td className="px-4 py-2">
-                    <Link
-                      href={`/vehicles/${encodeURIComponent(v.chassis_number)}`}
-                      className="text-gray-900 hover:underline"
-                    >
-                      {v.year ? `${v.year} ` : ""}
-                      {v.make} {v.model}
-                    </Link>
-                  </td>
-                  <td className="px-4 py-2 text-gray-600">{v.chassis_number}</td>
-                  <td className="px-4 py-2 text-gray-600">{formatMoney(v.total_landed_cost)}</td>
-                  <td className="px-4 py-2 text-gray-600">
-                    {v.agreed_sale_price != null ? formatMoney(v.agreed_sale_price) : "—"}
-                  </td>
-                  <td className="px-4 py-2 text-gray-600">
-                    {v.balance_due != null ? formatMoney(v.balance_due) : "—"}
-                  </td>
-                  <td
-                    className={`px-4 py-2 font-medium ${
-                      profit == null ? "text-gray-400" : profit >= 0 ? "text-green-700" : "text-red-700"
-                    }`}
-                  >
-                    {profit != null ? formatMoney(profit) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }

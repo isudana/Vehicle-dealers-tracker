@@ -30,6 +30,7 @@ import GenerateInvoiceButton from "@/components/GenerateInvoiceButton";
 import MarkReceivedButton from "@/components/MarkReceivedButton";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
 import DeleteVehicleButton from "@/components/DeleteVehicleButton";
+import Modal from "@/components/Modal";
 
 export default async function VehicleDetailPage({
   params,
@@ -113,7 +114,10 @@ export default async function VehicleDetailPage({
   const suppliers = (suppliersRes.data ?? []) as Supplier[];
   const models = (modelsRes.data ?? []) as VehicleModel[];
   const leasingCompanies = entities.filter((e) => e.category === "LEASING_COMPANY");
-  const accountOptions = entities.filter((e) => e.category === "CASH_ACCOUNT");
+  const customerPaymentsEntity = entities.find((e) => e.name === "Customer Payments");
+  const accountOptions = entities.filter(
+    (e) => e.category === "CASH_ACCOUNT" && e.id !== customerPaymentsEntity?.id,
+  );
 
   const expenseAttachmentUrls = await Promise.all(
     expenses.map((e) =>
@@ -286,14 +290,18 @@ export default async function VehicleDetailPage({
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-900">Cost ledger</h2>
-        <VehicleExpenseForm
-          chassisNumber={vehicle.chassis_number}
-          costHeads={costHeads}
-          entities={entities}
-          supplierAccountId={supplierAccount?.id}
-          supplierEntityId={supplierEntity?.id}
-        />
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-900">Cost ledger</h2>
+          <Modal triggerLabel="+ Add expense" title="Add expense">
+            <VehicleExpenseForm
+              chassisNumber={vehicle.chassis_number}
+              costHeads={costHeads}
+              entities={entities}
+              supplierAccountId={supplierAccount?.id}
+              supplierEntityId={supplierEntity?.id}
+            />
+          </Modal>
+        </div>
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
           {expenses.length === 0 ? (
             <p className="px-4 py-6 text-sm text-gray-500">No expenses recorded yet.</p>
@@ -389,8 +397,17 @@ export default async function VehicleDetailPage({
               )}
             </div>
 
-            <h3 className="text-sm font-medium text-gray-900">Receipts</h3>
-            <ReceiptForm saleId={sale.id} leasingCompanyId={sale.leasing_company_id} accountOptions={accountOptions} />
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-medium text-gray-900">Receipts</h3>
+              <Modal triggerLabel="+ Record receipt" title="Record receipt">
+                <ReceiptForm
+                  saleId={sale.id}
+                  leasingCompanyId={sale.leasing_company_id}
+                  customerPaymentsEntityId={customerPaymentsEntity?.id}
+                  accountOptions={accountOptions}
+                />
+              </Modal>
+            </div>
             <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
               {receipts.length === 0 ? (
                 <p className="px-4 py-6 text-sm text-gray-500">No receipts recorded yet.</p>

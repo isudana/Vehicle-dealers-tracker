@@ -14,6 +14,7 @@ import {
 } from "@/lib/types";
 import SupplierTransferForm from "@/components/SupplierTransferForm";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
+import Modal from "@/components/Modal";
 
 export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -59,6 +60,27 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
     balance = balanceRes.data as CashEntityBalance | null;
     entityBalance = entityBalanceRes.data as CashEntityBalance | null;
     transfers = (transfersRes.data ?? []) as CashTransfer[];
+  }
+
+  const chassisByCashTransferId: Record<string, string> = {};
+  if (transfers.length > 0) {
+    const transferIds = transfers.map((t) => t.id);
+    const [vehicleExpensesRes, saleReceiptsRes] = await Promise.all([
+      supabase.from("vehicle_expenses").select("cash_transfer_id, chassis_number").in("cash_transfer_id", transferIds),
+      supabase.from("sale_receipts").select("cash_transfer_id, sales(chassis_number)").in("cash_transfer_id", transferIds),
+    ]);
+    for (const ve of (vehicleExpensesRes.data ?? []) as { cash_transfer_id: string; chassis_number: string }[]) {
+      chassisByCashTransferId[ve.cash_transfer_id] = ve.chassis_number;
+    }
+    for (const sr of (saleReceiptsRes.data ?? []) as {
+      cash_transfer_id: string;
+      sales: { chassis_number: string }[] | null;
+    }[]) {
+      const chassisNumber = sr.sales?.[0]?.chassis_number;
+      if (sr.cash_transfer_id && chassisNumber) {
+        chassisByCashTransferId[sr.cash_transfer_id] = chassisNumber;
+      }
+    }
   }
 
   const receiptUrls = await Promise.all(
@@ -143,20 +165,20 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-900">Log a transfer with this supplier&rsquo;s account</h2>
-        {supplierAccount ? (
-          <SupplierTransferForm
-            supplierAccountId={supplierAccount.id}
-            defaultCurrency={supplier.primary_currency}
-            otherEntities={otherEntities}
-          />
-        ) : (
-          <p className="text-sm text-gray-500">Setting up this supplier&rsquo;s cash account…</p>
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-900">Transfer history</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-900">Transfer history</h2>
+          {supplierAccount ? (
+            <Modal triggerLabel="+ Log a transfer" title="Log a transfer with this supplier's account">
+              <SupplierTransferForm
+                supplierAccountId={supplierAccount.id}
+                defaultCurrency={supplier.primary_currency}
+                otherEntities={otherEntities}
+              />
+            </Modal>
+          ) : (
+            <p className="text-sm text-gray-500">Setting up this supplier&rsquo;s cash account…</p>
+          )}
+        </div>
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
           {transfers.length === 0 ? (
             <p className="px-4 py-6 text-sm text-gray-500">No transfers recorded yet.</p>
@@ -167,6 +189,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                   <th className="px-4 py-2">Date</th>
                   <th className="px-4 py-2">From</th>
                   <th className="px-4 py-2">To</th>
+                  <th className="px-4 py-2">Vehicle</th>
                   <th className="px-4 py-2">Method</th>
                   <th className="px-4 py-2">Bank reference</th>
                   <th className="px-4 py-2">Amount</th>
@@ -182,6 +205,18 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                     <td className="px-4 py-2 text-gray-600">{t.transfer_date}</td>
                     <td className="px-4 py-2 text-gray-600">{t.source_entity?.name ?? "—"}</td>
                     <td className="px-4 py-2 text-gray-600">{t.destination_entity?.name ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {chassisByCashTransferId[t.id] ? (
+                        <Link
+                          href={`/vehicles/${encodeURIComponent(chassisByCashTransferId[t.id])}`}
+                          className="text-gray-900 hover:underline"
+                        >
+                          {chassisByCashTransferId[t.id]}
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                     <td className="px-4 py-2 text-gray-600">{TRANSFER_METHOD_LABEL[t.method]}</td>
                     <td className="px-4 py-2 text-gray-600">{t.bank_reference ?? "—"}</td>
                     <td className="px-4 py-2 text-gray-900">{formatMoney(t.amount, t.currency)}</td>
