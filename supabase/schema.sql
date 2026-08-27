@@ -78,6 +78,10 @@ create type receipt_method as enum ('ADVANCE', 'DIRECT_CASH', 'LEASING_DISBURSAL
 create type cash_entity_type as enum
   ('GOVERNMENT', 'PORT', 'SUPPLIER', 'DRIVER', 'MECHANIC', 'INVESTOR', 'BANK', 'CLEARING_AGENT', 'CASH');
 create type transfer_method as enum ('TT', 'LC', 'CASH', 'BANK_TRANSFER', 'OTHER');
+-- Most entities can be either side of a transfer. Some are deposit-only (you only ever pay
+-- into them, e.g. Sri Lanka Customs) or, in principle, source-only (you only ever receive
+-- from them). Enforced both in the UI (dropdown filtering) and at the DB level below.
+create type cash_entity_direction as enum ('BIDIRECTIONAL', 'SOURCE_ONLY', 'DESTINATION_ONLY');
 
 -- ============ App-wide settings (singleton row) ============
 create table app_settings (
@@ -109,18 +113,19 @@ create table cash_entities (
   id uuid primary key default gen_random_uuid(),
   name text not null,
   type cash_entity_type not null,
+  direction cash_entity_direction not null default 'BIDIRECTIONAL',
   logo_path text,
   primary_currency text not null default 'LKR',
   supplier_id uuid unique references suppliers (id) on delete cascade,
   created_at timestamptz not null default now()
 );
 
-insert into cash_entities (name, type) values
-  ('HIPG', 'PORT'),
-  ('Sri Lanka Customs', 'GOVERNMENT'),
-  ('Colombo Port', 'PORT'),
-  ('RMV', 'GOVERNMENT'),
-  ('Petty Cash', 'CASH');
+insert into cash_entities (name, type, direction) values
+  ('HIPG', 'PORT', 'DESTINATION_ONLY'),
+  ('Sri Lanka Customs', 'GOVERNMENT', 'DESTINATION_ONLY'),
+  ('Colombo Port', 'PORT', 'DESTINATION_ONLY'),
+  ('RMV', 'GOVERNMENT', 'DESTINATION_ONLY'),
+  ('Petty Cash', 'CASH', 'BIDIRECTIONAL');
 
 create or replace function sync_cash_entity_from_supplier()
 returns trigger as $$
@@ -356,6 +361,32 @@ create table cash_transfers (
   created_at timestamptz not null default now(),
   check (source_entity_id <> destination_entity_id)
 );
+
+create or replace function enforce_cash_entity_direction()
+returns trigger as $$
+declare
+  source_direction cash_entity_direction;
+  destination_direction cash_entity_direction;
+begin
+  select direction into source_direction from cash_entities where id = new.source_entity_id;
+  select direction into destination_direction from cash_entities where id = new.destination_entity_id;
+
+  if source_direction = 'DESTINATION_ONLY' then
+    raise exception 'This entity can only receive money — it can''t be used as a source.';
+  end if;
+
+  if destination_direction = 'SOURCE_ONLY' then
+    raise exception 'This entity can only send money — it can''t be used as a destination.';
+  end if;
+
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists on_cash_transfer_direction_check on cash_transfers;
+create trigger on_cash_transfer_direction_check
+  before insert or update on cash_transfers
+  for each row execute procedure enforce_cash_entity_direction();
 
 -- ============ Dynamic cost ledger (wraps a cash transfer with a vehicle + cost head) ============
 create table vehicle_expenses (

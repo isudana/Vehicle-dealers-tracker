@@ -4,13 +4,20 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
-import { CASH_ENTITY_TYPE_LABEL, CURRENCIES, type CashEntityType } from "@/lib/types";
+import {
+  CASH_ENTITY_DIRECTION_LABEL,
+  CASH_ENTITY_TYPE_LABEL,
+  CURRENCIES,
+  type CashEntityDirection,
+  type CashEntityType,
+} from "@/lib/types";
 
 export default function CashEntityForm() {
   const router = useRouter();
   const supabase = createClient();
   const [name, setName] = useState("");
   const [type, setType] = useState<CashEntityType>("BANK");
+  const [direction, setDirection] = useState<CashEntityDirection>("BIDIRECTIONAL");
   const [primaryCurrency, setPrimaryCurrency] = useState("LKR");
   const [logo, setLogo] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -23,7 +30,7 @@ export default function CashEntityForm() {
 
     const { data: inserted, error } = await supabase
       .from("cash_entities")
-      .insert({ name, type, primary_currency: primaryCurrency })
+      .insert({ name, type, direction, primary_currency: primaryCurrency })
       .select("id")
       .single();
 
@@ -71,6 +78,19 @@ export default function CashEntityForm() {
           {CURRENCIES.map((c) => (
             <option key={c} value={c}>
               {c}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Direction">
+        <select
+          value={direction}
+          onChange={(e) => setDirection(e.target.value as CashEntityDirection)}
+          className="input"
+        >
+          {(Object.keys(CASH_ENTITY_DIRECTION_LABEL) as CashEntityDirection[]).map((d) => (
+            <option key={d} value={d}>
+              {CASH_ENTITY_DIRECTION_LABEL[d]}
             </option>
           ))}
         </select>

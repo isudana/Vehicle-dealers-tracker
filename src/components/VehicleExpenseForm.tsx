@@ -29,7 +29,9 @@ export default function VehicleExpenseForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const defaultSource = entities.find((e) => e.type === "CASH") ?? entities[0];
+  const sourceOptions = entities.filter((e) => e.direction !== "DESTINATION_ONLY");
+  const destinationOptions = entities.filter((e) => e.direction !== "SOURCE_ONLY");
+  const defaultSource = sourceOptions.find((e) => e.type === "CASH") ?? sourceOptions[0];
 
   const [costHeadId, setCostHeadId] = useState(costHeads[0]?.id ?? "");
   const [amount, setAmount] = useState("");
@@ -154,10 +156,10 @@ export default function VehicleExpenseForm({
     router.refresh();
   }
 
-  if (entities.length === 0) {
+  if (sourceOptions.length === 0 || destinationOptions.length === 0) {
     return (
       <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
-        No cash entities yet — add one in Settings before recording expenses.
+        No usable cash entities yet — add one in Settings before recording expenses.
       </p>
     );
   }
@@ -219,7 +221,7 @@ export default function VehicleExpenseForm({
       </Field>
       <Field label="Source (paid from)">
         <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className="input">
-          {entities.map((en) => (
+          {sourceOptions.map((en) => (
             <option key={en.id} value={en.id}>
               {en.name}
             </option>
@@ -234,7 +236,7 @@ export default function VehicleExpenseForm({
           className="input"
         >
           <option value="">Select…</option>
-          {entities.map((en) => (
+          {destinationOptions.map((en) => (
             <option key={en.id} value={en.id}>
               {en.name}
             </option>

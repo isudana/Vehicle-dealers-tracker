@@ -9,8 +9,12 @@ import { CURRENCIES, TRANSFER_METHOD_LABEL, type CashEntity, type TransferMethod
 export default function CashTransferForm({ entities }: { entities: CashEntity[] }) {
   const router = useRouter();
   const supabase = createClient();
-  const [sourceId, setSourceId] = useState(entities[0]?.id ?? "");
-  const [destinationId, setDestinationId] = useState(entities[1]?.id ?? entities[0]?.id ?? "");
+  const sourceOptions = entities.filter((e) => e.direction !== "DESTINATION_ONLY");
+  const destinationOptions = entities.filter((e) => e.direction !== "SOURCE_ONLY");
+  const [sourceId, setSourceId] = useState(sourceOptions[0]?.id ?? "");
+  const [destinationId, setDestinationId] = useState(
+    destinationOptions.find((e) => e.id !== sourceOptions[0]?.id)?.id ?? destinationOptions[0]?.id ?? "",
+  );
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("LKR");
   const [currencyTouched, setCurrencyTouched] = useState(false);
@@ -97,10 +101,10 @@ export default function CashTransferForm({ entities }: { entities: CashEntity[] 
     router.refresh();
   }
 
-  if (entities.length < 2) {
+  if (entities.length < 2 || sourceOptions.length === 0 || destinationOptions.length === 0) {
     return (
       <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
-        Add at least two cash entities in Settings before logging a transfer.
+        Add at least two cash entities in Settings (with compatible directions) before logging a transfer.
       </p>
     );
   }
@@ -109,7 +113,7 @@ export default function CashTransferForm({ entities }: { entities: CashEntity[] 
     <form onSubmit={handleSubmit} className="grid grid-cols-3 gap-4 rounded-lg border border-gray-200 bg-white p-4">
       <Field label="Source (from)">
         <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className="input">
-          {entities.map((en) => (
+          {sourceOptions.map((en) => (
             <option key={en.id} value={en.id}>
               {en.name}
             </option>
@@ -118,7 +122,7 @@ export default function CashTransferForm({ entities }: { entities: CashEntity[] 
       </Field>
       <Field label="Destination (to)">
         <select value={destinationId} onChange={(e) => handleDestinationChange(e.target.value)} className="input">
-          {entities.map((en) => (
+          {destinationOptions.map((en) => (
             <option key={en.id} value={en.id}>
               {en.name}
             </option>

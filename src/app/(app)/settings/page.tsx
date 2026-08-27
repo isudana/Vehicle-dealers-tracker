@@ -1,5 +1,11 @@
 import { createClient } from "@/lib/supabase/server";
-import { CASH_ENTITY_TYPE_LABEL, type AppSettings, type CashEntity, type VehicleModel } from "@/lib/types";
+import {
+  CASH_ENTITY_DIRECTION_LABEL,
+  CASH_ENTITY_TYPE_LABEL,
+  type AppSettings,
+  type CashEntity,
+  type VehicleModel,
+} from "@/lib/types";
 import { getPublicUrl } from "@/lib/storage";
 import AppBrandingForm from "@/components/AppBrandingForm";
 import VehicleModelForm from "@/components/VehicleModelForm";
@@ -81,6 +87,11 @@ export default async function SettingsPage() {
                       <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
                         {CASH_ENTITY_TYPE_LABEL[en.type]}
                       </span>
+                      {en.direction !== "BIDIRECTIONAL" && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                          {CASH_ENTITY_DIRECTION_LABEL[en.direction]}
+                        </span>
+                      )}
                     </div>
                     <EntityDeleteButton
                       what={`entity "${en.name}"`}

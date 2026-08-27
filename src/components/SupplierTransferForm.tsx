@@ -18,7 +18,22 @@ export default function SupplierTransferForm({
   const router = useRouter();
   const supabase = createClient();
   const [direction, setDirection] = useState<"TO_SUPPLIER" | "FROM_SUPPLIER">("TO_SUPPLIER");
-  const [otherPartyId, setOtherPartyId] = useState(otherEntities[0]?.id ?? "");
+  // When "To supplier," the other party acts as the source (must not be destination-only).
+  // When "From supplier" (refund), the other party acts as the destination (must not be source-only).
+  const otherPartyOptions = otherEntities.filter((e) =>
+    direction === "TO_SUPPLIER" ? e.direction !== "DESTINATION_ONLY" : e.direction !== "SOURCE_ONLY",
+  );
+  const [otherPartyId, setOtherPartyId] = useState(otherPartyOptions[0]?.id ?? "");
+
+  function handleDirectionChange(value: "TO_SUPPLIER" | "FROM_SUPPLIER") {
+    setDirection(value);
+    const validOptions = otherEntities.filter((e) =>
+      value === "TO_SUPPLIER" ? e.direction !== "DESTINATION_ONLY" : e.direction !== "SOURCE_ONLY",
+    );
+    if (!validOptions.some((e) => e.id === otherPartyId)) {
+      setOtherPartyId(validOptions[0]?.id ?? "");
+    }
+  }
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
   const [exchangeRate, setExchangeRate] = useState(defaultCurrency === "LKR" ? "1" : "");
@@ -95,10 +110,11 @@ export default function SupplierTransferForm({
     router.refresh();
   }
 
-  if (otherEntities.length === 0) {
+  if (otherPartyOptions.length === 0) {
     return (
       <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
-        No other cash entities yet — add a Bank or Cash entity in Settings before logging a transfer.
+        No usable cash entities for this direction yet — add a Bank or Cash entity in Settings before logging a
+        transfer.
       </p>
     );
   }
@@ -108,7 +124,7 @@ export default function SupplierTransferForm({
       <Field label="Direction">
         <select
           value={direction}
-          onChange={(e) => setDirection(e.target.value as "TO_SUPPLIER" | "FROM_SUPPLIER")}
+          onChange={(e) => handleDirectionChange(e.target.value as "TO_SUPPLIER" | "FROM_SUPPLIER")}
           className="input"
         >
           <option value="TO_SUPPLIER">To supplier</option>
@@ -117,7 +133,7 @@ export default function SupplierTransferForm({
       </Field>
       <Field label="Other party">
         <select value={otherPartyId} onChange={(e) => setOtherPartyId(e.target.value)} className="input">
-          {otherEntities.map((en) => (
+          {otherPartyOptions.map((en) => (
             <option key={en.id} value={en.id}>
               {en.name}
             </option>

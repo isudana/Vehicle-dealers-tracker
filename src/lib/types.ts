@@ -57,10 +57,19 @@ export const TRANSFER_METHOD_LABEL: Record<TransferMethod, string> = {
   OTHER: "Other",
 };
 
+export type CashEntityDirection = "BIDIRECTIONAL" | "SOURCE_ONLY" | "DESTINATION_ONLY";
+
+export const CASH_ENTITY_DIRECTION_LABEL: Record<CashEntityDirection, string> = {
+  BIDIRECTIONAL: "Bidirectional",
+  SOURCE_ONLY: "Source only",
+  DESTINATION_ONLY: "Destination only",
+};
+
 export type CashEntity = {
   id: string;
   name: string;
   type: CashEntityType;
+  direction: CashEntityDirection;
   logo_path: string | null;
   primary_currency: string;
   supplier_id: string | null;
