@@ -8,20 +8,21 @@ drop view if exists supplier_balance;
 drop view if exists vehicle_pnl;
 drop view if exists car_profit; -- from the earlier prototype schema
 
-drop table if exists sale_receipts;
-drop table if exists sales;
-drop table if exists customers;
-drop table if exists supplier_advances;
-drop table if exists vehicle_expenses;
-drop table if exists vehicles;
-drop table if exists cost_heads;
-drop table if exists suppliers;
+drop table if exists sale_receipts cascade;
+drop table if exists sales cascade;
+drop table if exists customers cascade;
+drop table if exists supplier_advances cascade;
+drop table if exists vehicle_expenses cascade;
+drop table if exists vehicles cascade;
+drop table if exists cost_heads cascade;
 
--- from the earlier prototype schema
-drop table if exists supplier_payments;
-drop table if exists expenses;
-drop table if exists expense_categories;
-drop table if exists cars;
+-- from the earlier prototype schema (dropped before `suppliers`, which they reference)
+drop table if exists supplier_payments cascade;
+drop table if exists expenses cascade;
+drop table if exists expense_categories cascade;
+drop table if exists cars cascade;
+
+drop table if exists suppliers cascade;
 
 drop type if exists receipt_method;
 drop type if exists advance_type;
@@ -314,6 +315,9 @@ alter table customers enable row level security;
 alter table sales enable row level security;
 alter table sale_receipts enable row level security;
 
+-- `profiles` is never dropped above, so its policies must be dropped explicitly to make this script rerunnable.
+drop policy if exists "authenticated read profiles" on profiles;
+drop policy if exists "authenticated update own profile" on profiles;
 create policy "authenticated read profiles" on profiles for select using (auth.role() = 'authenticated');
 create policy "authenticated update own profile" on profiles for update using (auth.uid() = id);
 
