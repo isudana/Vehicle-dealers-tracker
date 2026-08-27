@@ -10,10 +10,12 @@ export default function SupplierTransferForm({
   supplierAccountId,
   defaultCurrency,
   otherEntities,
+  onSuccess,
 }: {
   supplierAccountId: string;
   defaultCurrency: string;
   otherEntities: CashEntity[];
+  onSuccess?: () => void;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -104,6 +106,7 @@ export default function SupplierTransferForm({
     setReceipt(null);
     setLcDocument(null);
     router.refresh();
+    onSuccess?.();
   }
 
   if (otherPartyOptions.length === 0) {

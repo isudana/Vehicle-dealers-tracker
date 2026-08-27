@@ -15,7 +15,7 @@ import {
 // SUPPLIER is excluded everywhere here — those rows are trigger-managed only (created
 // automatically, one CASH_ACCOUNT + one CASH_ENTITY, when a supplier is added).
 const TYPE_OPTIONS_BY_CATEGORY: Record<CashEntityCategory, CashEntityType[]> = {
-  CASH_ACCOUNT: ["BANK", "CASH"],
+  CASH_ACCOUNT: ["BANK", "CASH", "CUSTOMER"],
   CASH_ENTITY: ["GOVERNMENT", "PORT", "DRIVER", "MECHANIC", "CLEARING_AGENT", "BANK", "OTHER"],
   INVESTOR: ["INVESTOR"],
   LEASING_COMPANY: ["LEASING_COMPANY"],

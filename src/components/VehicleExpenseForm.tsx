@@ -22,12 +22,14 @@ export default function VehicleExpenseForm({
   entities,
   supplierAccountId,
   supplierEntityId,
+  onSuccess,
 }: {
   chassisNumber: string;
   costHeads: CostHead[];
   entities: CashEntity[];
   supplierAccountId?: string;
   supplierEntityId?: string;
+  onSuccess?: () => void;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -179,6 +181,7 @@ export default function VehicleExpenseForm({
     setRemarks("");
     setAttachment(null);
     router.refresh();
+    onSuccess?.();
   }
 
   if (sourceOptions.length === 0 || destinationOptions.length === 0) {

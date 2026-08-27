@@ -81,7 +81,7 @@ create type receipt_method as enum ('ADVANCE', 'DIRECT_CASH', 'LEASING_DISBURSAL
 -- catch-all for destination-only parties that don't fit the rest.
 create type cash_entity_type as enum
   ('GOVERNMENT', 'PORT', 'SUPPLIER', 'DRIVER', 'MECHANIC', 'INVESTOR', 'BANK', 'CLEARING_AGENT', 'CASH',
-   'LEASING_COMPANY', 'OTHER');
+   'LEASING_COMPANY', 'CUSTOMER', 'OTHER');
 create type transfer_method as enum ('TT', 'LC', 'CASH', 'BANK_TRANSFER', 'OTHER');
 -- Every cash entity belongs to one of four categories, which fixes its directionality:
 -- CASH_ACCOUNT (banks, petty cash, supplier accounts), INVESTOR, and LEASING_COMPANY are
@@ -141,7 +141,12 @@ insert into cash_entities (name, type, category) values
   ('Sri Lanka Customs', 'GOVERNMENT', 'CASH_ENTITY'),
   ('Colombo Port', 'PORT', 'CASH_ENTITY'),
   ('RMV', 'GOVERNMENT', 'CASH_ENTITY'),
-  ('Petty Cash', 'CASH', 'CASH_ACCOUNT');
+  ('Petty Cash', 'CASH', 'CASH_ACCOUNT'),
+  -- Aggregate source for Advance/Direct Cash sale receipts, so depositing one into a real
+  -- Cash Account is a real transfer (source=Customer Payments) rather than an untracked
+  -- number — its own balance shows cumulative money received from customers, mirroring
+  -- how a Leasing Company's balance reflects cumulative disbursements.
+  ('Customer Payments', 'CUSTOMER', 'CASH_ACCOUNT');
 
 create or replace function sync_cash_entity_from_supplier()
 returns trigger as $$

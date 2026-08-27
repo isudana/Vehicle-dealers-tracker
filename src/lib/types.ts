@@ -35,6 +35,7 @@ export type CashEntityType =
   | "CLEARING_AGENT"
   | "CASH"
   | "LEASING_COMPANY"
+  | "CUSTOMER"
   | "OTHER";
 
 export const CASH_ENTITY_TYPE_LABEL: Record<CashEntityType, string> = {
@@ -48,6 +49,7 @@ export const CASH_ENTITY_TYPE_LABEL: Record<CashEntityType, string> = {
   CLEARING_AGENT: "Clearing Agent",
   CASH: "Cash",
   LEASING_COMPANY: "Leasing Company",
+  CUSTOMER: "Customer",
   OTHER: "Other",
 };
 
