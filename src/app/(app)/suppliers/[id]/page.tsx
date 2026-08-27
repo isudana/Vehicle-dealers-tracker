@@ -3,25 +3,25 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getPublicUrl, getSignedUrl } from "@/lib/storage";
 import {
-  ADVANCE_TYPE_LABEL,
+  TRANSFER_METHOD_LABEL,
   formatMoney,
   VEHICLE_STATUS_LABEL,
+  type CashEntity,
+  type CashEntityBalance,
+  type CashTransfer,
   type Supplier,
-  type SupplierAdvance,
-  type SupplierBalance,
   type Vehicle,
 } from "@/lib/types";
-import SupplierAdvanceForm from "@/components/SupplierAdvanceForm";
+import SupplierTransferForm from "@/components/SupplierTransferForm";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
 
 export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const supabase = await createClient();
 
-  const [supplierRes, balanceRes, advancesRes, vehiclesRes] = await Promise.all([
+  const [supplierRes, entitiesRes, vehiclesRes] = await Promise.all([
     supabase.from("suppliers").select("*").eq("id", id).single(),
-    supabase.from("supplier_balance").select("*").eq("supplier_id", id).maybeSingle(),
-    supabase.from("supplier_advances").select("*").eq("supplier_id", id).order("transfer_date", { ascending: false }),
+    supabase.from("cash_entities").select("*").order("name"),
     supabase
       .from("vehicles")
       .select("*, vehicle_models(*)")
@@ -34,18 +34,33 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   }
 
   const supplier = supplierRes.data as Supplier;
-  const balance = balanceRes.data as SupplierBalance | null;
-  const advances = (advancesRes.data ?? []) as SupplierAdvance[];
+  const entities = (entitiesRes.data ?? []) as CashEntity[];
+  const supplierEntity = entities.find((e) => e.supplier_id === supplier.id);
+  const otherEntities = entities.filter((e) => e.supplier_id !== supplier.id);
   const vehicles = (vehiclesRes.data ?? []) as Vehicle[];
   const logoUrl = supplier.logo_path ? getPublicUrl(supabase, "supplier-logos", supplier.logo_path) : null;
+
+  let balance: CashEntityBalance | null = null;
+  let transfers: CashTransfer[] = [];
+  if (supplierEntity) {
+    const [balanceRes, transfersRes] = await Promise.all([
+      supabase.from("cash_entity_balance").select("*").eq("entity_id", supplierEntity.id).maybeSingle(),
+      supabase
+        .from("cash_transfers")
+        .select("*, source_entity:source_entity_id(*), destination_entity:destination_entity_id(*)")
+        .or(`source_entity_id.eq.${supplierEntity.id},destination_entity_id.eq.${supplierEntity.id}`)
+        .order("transfer_date", { ascending: false }),
+    ]);
+    balance = balanceRes.data as CashEntityBalance | null;
+    transfers = (transfersRes.data ?? []) as CashTransfer[];
+  }
+
   const receiptUrls = await Promise.all(
-    advances.map((a) =>
-      a.receipt_path ? getSignedUrl(supabase, "receipt-attachments", a.receipt_path) : Promise.resolve(null),
-    ),
+    transfers.map((t) => (t.receipt_path ? getSignedUrl(supabase, "receipt-attachments", t.receipt_path) : Promise.resolve(null))),
   );
   const lcDocUrls = await Promise.all(
-    advances.map((a) =>
-      a.lc_document_path ? getSignedUrl(supabase, "receipt-attachments", a.lc_document_path) : Promise.resolve(null),
+    transfers.map((t) =>
+      t.lc_document_path ? getSignedUrl(supabase, "receipt-attachments", t.lc_document_path) : Promise.resolve(null),
     ),
   );
 
@@ -73,7 +88,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             table="suppliers"
             id={supplier.id}
             filesToDelete={supplier.logo_path ? [{ bucket: "supplier-logos", path: supplier.logo_path }] : []}
-            restrictHint={`Can't delete — ${vehicles.length} vehicle${vehicles.length === 1 ? "" : "s"} still reference this supplier. Remove or reassign them first.`}
+            restrictHint={`Can't delete — ${vehicles.length} vehicle${vehicles.length === 1 ? "" : "s"} and/or transfer history still reference this supplier. Remove those first.`}
             redirectTo="/suppliers"
             size="md"
           />
@@ -84,59 +99,57 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
           In {supplier.primary_currency}
         </p>
-        <div className="grid grid-cols-4 gap-4">
+        <div className="grid grid-cols-3 gap-4">
+          <SummaryCard label="Total in" value={formatMoney(balance?.total_in_native ?? 0, supplier.primary_currency)} />
+          <SummaryCard label="Total out" value={formatMoney(balance?.total_out_native ?? 0, supplier.primary_currency)} />
           <SummaryCard
-            label="Total deposits"
-            value={formatMoney(balance?.total_deposits_native ?? 0, supplier.primary_currency)}
-          />
-          <SummaryCard
-            label="Deducted (LC/TT)"
-            value={formatMoney(balance?.total_deducted_native ?? 0, supplier.primary_currency)}
-          />
-          <SummaryCard
-            label="Refunds"
-            value={formatMoney(balance?.total_refunds_native ?? 0, supplier.primary_currency)}
-          />
-          <SummaryCard
-            label="Available balance"
-            value={formatMoney(balance?.available_balance_native ?? 0, supplier.primary_currency)}
-            highlight={(balance?.available_balance_native ?? 0) < 0}
+            label="Balance"
+            value={formatMoney(balance?.balance_native ?? 0, supplier.primary_currency)}
+            highlight={(balance?.balance_native ?? 0) < 0}
           />
         </div>
       </div>
 
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">In LKR (all currencies)</p>
-        <div className="grid grid-cols-4 gap-4">
-          <SummaryCard label="Total deposits" value={formatMoney(balance?.total_deposits_lkr ?? 0)} />
-          <SummaryCard label="Deducted (LC/TT)" value={formatMoney(balance?.total_deducted_lkr ?? 0)} />
-          <SummaryCard label="Refunds" value={formatMoney(balance?.total_refunds_lkr ?? 0)} />
+        <div className="grid grid-cols-3 gap-4">
+          <SummaryCard label="Total in" value={formatMoney(balance?.total_in_lkr ?? 0)} />
+          <SummaryCard label="Total out" value={formatMoney(balance?.total_out_lkr ?? 0)} />
           <SummaryCard
-            label="Available balance"
-            value={formatMoney(balance?.available_balance_lkr ?? 0)}
-            highlight={(balance?.available_balance_lkr ?? 0) < 0}
+            label="Balance"
+            value={formatMoney(balance?.balance_lkr ?? 0)}
+            highlight={(balance?.balance_lkr ?? 0) < 0}
           />
         </div>
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-medium text-gray-900">Log an advance transfer or refund</h2>
-        <SupplierAdvanceForm supplierId={supplier.id} defaultCurrency={supplier.primary_currency} />
+        <h2 className="text-sm font-medium text-gray-900">Log a transfer with this supplier</h2>
+        {supplierEntity ? (
+          <SupplierTransferForm
+            supplierEntityId={supplierEntity.id}
+            defaultCurrency={supplier.primary_currency}
+            otherEntities={otherEntities}
+          />
+        ) : (
+          <p className="text-sm text-gray-500">Setting up this supplier&rsquo;s cash entity…</p>
+        )}
       </section>
 
       <section className="space-y-3">
         <h2 className="text-sm font-medium text-gray-900">Transfer history</h2>
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
-          {advances.length === 0 ? (
+          {transfers.length === 0 ? (
             <p className="px-4 py-6 text-sm text-gray-500">No transfers recorded yet.</p>
           ) : (
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-left text-gray-500">
                   <th className="px-4 py-2">Date</th>
-                  <th className="px-4 py-2">Type</th>
+                  <th className="px-4 py-2">From</th>
+                  <th className="px-4 py-2">To</th>
+                  <th className="px-4 py-2">Method</th>
                   <th className="px-4 py-2">Bank reference</th>
-                  <th className="px-4 py-2">Rate to LKR</th>
                   <th className="px-4 py-2">Amount</th>
                   <th className="px-4 py-2">LKR equiv.</th>
                   <th className="px-4 py-2">Receipt</th>
@@ -145,14 +158,17 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                 </tr>
               </thead>
               <tbody>
-                {advances.map((a, i) => (
-                  <tr key={a.id} className="border-t border-gray-100">
-                    <td className="px-4 py-2 text-gray-600">{a.transfer_date}</td>
-                    <td className="px-4 py-2 text-gray-600">{ADVANCE_TYPE_LABEL[a.type]}</td>
-                    <td className="px-4 py-2 text-gray-600">{a.bank_reference ?? "—"}</td>
-                    <td className="px-4 py-2 text-gray-600">{a.exchange_rate_to_lkr}</td>
-                    <td className="px-4 py-2 text-gray-900">{formatMoney(a.amount, a.currency)}</td>
-                    <td className="px-4 py-2 text-gray-600">{formatMoney(a.amount_lkr)}</td>
+                {transfers.map((t, i) => (
+                  <tr key={t.id} className="border-t border-gray-100">
+                    <td className="px-4 py-2 text-gray-600">{t.transfer_date}</td>
+                    <td className="px-4 py-2 text-gray-600">{t.source_entity?.name ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">{t.destination_entity?.name ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">{TRANSFER_METHOD_LABEL[t.method]}</td>
+                    <td className="px-4 py-2 text-gray-600">{t.bank_reference ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-900">{formatMoney(t.amount, t.currency)}</td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {t.currency === "LKR" ? "—" : formatMoney(t.amount_lkr)}
+                    </td>
                     <td className="px-4 py-2 text-gray-600">
                       {receiptUrls[i] ? (
                         <a href={receiptUrls[i]!} target="_blank" rel="noopener noreferrer" className="text-gray-900 underline">
@@ -174,12 +190,12 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                     <td className="px-4 py-2">
                       <EntityDeleteButton
                         what="this transfer"
-                        table="supplier_advances"
-                        id={a.id}
+                        table="cash_transfers"
+                        id={t.id}
                         filesToDelete={[
-                          ...(a.receipt_path ? [{ bucket: "receipt-attachments", path: a.receipt_path }] : []),
-                          ...(a.lc_document_path
-                            ? [{ bucket: "receipt-attachments", path: a.lc_document_path }]
+                          ...(t.receipt_path ? [{ bucket: "receipt-attachments", path: t.receipt_path }] : []),
+                          ...(t.lc_document_path
+                            ? [{ bucket: "receipt-attachments", path: t.lc_document_path }]
                             : []),
                         ]}
                       />

@@ -13,14 +13,7 @@ export const VEHICLE_STATUS_LABEL: Record<VehicleStatus, string> = {
 
 export type PaymentType = "DIRECT_CASH" | "LEASING" | "HYBRID";
 export type LeasingStatus = "NOT_APPLICABLE" | "PENDING" | "RECEIVED";
-export type AdvanceType = "TT_DEPOSIT" | "LC_TRANSFER" | "REFUND";
 export type ReceiptMethod = "ADVANCE" | "DIRECT_CASH" | "LEASING_DISBURSAL";
-
-export const ADVANCE_TYPE_LABEL: Record<AdvanceType, string> = {
-  TT_DEPOSIT: "TT Deposit",
-  LC_TRANSFER: "LC Transfer",
-  REFUND: "Refund",
-};
 
 export const RECEIPT_METHOD_LABEL: Record<ReceiptMethod, string> = {
   ADVANCE: "Advance",
@@ -30,6 +23,81 @@ export const RECEIPT_METHOD_LABEL: Record<ReceiptMethod, string> = {
 
 export const CURRENCIES = ["LKR", "JPY", "USD"] as const;
 export type Currency = (typeof CURRENCIES)[number];
+
+export type CashEntityType =
+  | "GOVERNMENT"
+  | "PORT"
+  | "SUPPLIER"
+  | "DRIVER"
+  | "MECHANIC"
+  | "INVESTOR"
+  | "BANK"
+  | "CLEARING_AGENT"
+  | "CASH";
+
+export const CASH_ENTITY_TYPE_LABEL: Record<CashEntityType, string> = {
+  GOVERNMENT: "Government",
+  PORT: "Port",
+  SUPPLIER: "Supplier",
+  DRIVER: "Driver",
+  MECHANIC: "Mechanic",
+  INVESTOR: "Investor",
+  BANK: "Bank",
+  CLEARING_AGENT: "Clearing Agent",
+  CASH: "Cash",
+};
+
+export type TransferMethod = "TT" | "LC" | "CASH" | "BANK_TRANSFER" | "OTHER";
+
+export const TRANSFER_METHOD_LABEL: Record<TransferMethod, string> = {
+  TT: "TT",
+  LC: "LC",
+  CASH: "Cash",
+  BANK_TRANSFER: "Bank Transfer",
+  OTHER: "Other",
+};
+
+export type CashEntity = {
+  id: string;
+  name: string;
+  type: CashEntityType;
+  logo_path: string | null;
+  primary_currency: string;
+  supplier_id: string | null;
+};
+
+export type CashTransfer = {
+  id: string;
+  source_entity_id: string;
+  destination_entity_id: string;
+  amount: number;
+  currency: string;
+  exchange_rate_to_lkr: number;
+  amount_lkr: number;
+  transfer_date: string;
+  method: TransferMethod;
+  purpose: string | null;
+  notes: string | null;
+  bank_reference: string | null;
+  receipt_path: string | null;
+  lc_document_path: string | null;
+  source_entity?: CashEntity | null;
+  destination_entity?: CashEntity | null;
+};
+
+export type CashEntityBalance = {
+  entity_id: string;
+  name: string;
+  type: CashEntityType;
+  primary_currency: string;
+  supplier_id: string | null;
+  total_in_lkr: number;
+  total_out_lkr: number;
+  balance_lkr: number;
+  total_in_native: number;
+  total_out_native: number;
+  balance_native: number;
+};
 
 export type Supplier = {
   id: string;
@@ -91,41 +159,10 @@ export type VehicleExpense = {
   id: string;
   chassis_number: string;
   cost_head_id: string;
-  amount: number;
-  currency: string;
-  exchange_rate_to_lkr: number;
-  amount_lkr: number;
-  date_recorded: string;
+  cash_transfer_id: string;
   remarks: string | null;
-  attachment_path: string | null;
   cost_heads?: CostHead | null;
-};
-
-export type SupplierAdvance = {
-  id: string;
-  supplier_id: string;
-  type: AdvanceType;
-  amount: number;
-  currency: string;
-  exchange_rate_to_lkr: number;
-  amount_lkr: number;
-  bank_reference: string | null;
-  transfer_date: string;
-  notes: string | null;
-  receipt_path: string | null;
-  lc_document_path: string | null;
-};
-
-export type CapitalInjection = {
-  id: string;
-  amount: number;
-  currency: string;
-  exchange_rate_to_lkr: number;
-  amount_lkr: number;
-  storage_location: string;
-  source: string | null;
-  injection_date: string;
-  notes: string | null;
+  cash_transfers?: CashTransfer | null;
 };
 
 export type OverheadCategory = {
@@ -136,14 +173,10 @@ export type OverheadCategory = {
 export type OverheadExpense = {
   id: string;
   category_id: string;
-  amount: number;
-  currency: string;
-  exchange_rate_to_lkr: number;
-  amount_lkr: number;
-  expense_date: string;
+  cash_transfer_id: string;
   remarks: string | null;
-  attachment_path: string | null;
   overhead_categories?: OverheadCategory | null;
+  cash_transfers?: CashTransfer | null;
 };
 
 export type Resource = {
@@ -222,20 +255,6 @@ export type ModelSummary = {
   sold_count: number;
   total_landed_cost: number;
   total_realized_profit: number;
-};
-
-export type SupplierBalance = {
-  supplier_id: string;
-  name: string;
-  primary_currency: string;
-  total_deposits_lkr: number;
-  total_refunds_lkr: number;
-  total_deducted_lkr: number;
-  available_balance_lkr: number;
-  total_deposits_native: number;
-  total_refunds_native: number;
-  total_deducted_native: number;
-  available_balance_native: number;
 };
 
 export type ExecutiveSummary = {

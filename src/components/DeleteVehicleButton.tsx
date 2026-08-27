@@ -10,13 +10,15 @@ export default function DeleteVehicleButton({
   saleId,
   photoPaths,
   documentPaths,
-  expenseAttachmentPaths,
+  expenseCashTransferIds,
+  expenseReceiptPaths,
 }: {
   chassisNumber: string;
   saleId: string | null;
   photoPaths: string[];
   documentPaths: string[];
-  expenseAttachmentPaths: string[];
+  expenseCashTransferIds: string[];
+  expenseReceiptPaths: string[];
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -41,12 +43,17 @@ export default function DeleteVehicleButton({
         // best-effort
       }
     }
-    for (const path of expenseAttachmentPaths) {
+    for (const path of expenseReceiptPaths) {
       try {
         await deleteFile(supabase, "receipt-attachments", path);
       } catch {
         // best-effort
       }
+    }
+
+    if (expenseCashTransferIds.length > 0) {
+      const { error } = await supabase.from("cash_transfers").delete().in("id", expenseCashTransferIds);
+      if (error) throw error;
     }
 
     const { error } = await supabase.from("vehicles").delete().eq("chassis_number", chassisNumber);

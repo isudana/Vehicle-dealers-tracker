@@ -4,23 +4,27 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
-import { ADVANCE_TYPE_LABEL, CURRENCIES, type AdvanceType } from "@/lib/types";
+import { CURRENCIES, TRANSFER_METHOD_LABEL, type CashEntity, type TransferMethod } from "@/lib/types";
 
-export default function SupplierAdvanceForm({
-  supplierId,
+export default function SupplierTransferForm({
+  supplierEntityId,
   defaultCurrency,
+  otherEntities,
 }: {
-  supplierId: string;
+  supplierEntityId: string;
   defaultCurrency: string;
+  otherEntities: CashEntity[];
 }) {
   const router = useRouter();
   const supabase = createClient();
-  const [type, setType] = useState<AdvanceType>("TT_DEPOSIT");
+  const [direction, setDirection] = useState<"TO_SUPPLIER" | "FROM_SUPPLIER">("TO_SUPPLIER");
+  const [otherPartyId, setOtherPartyId] = useState(otherEntities[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState(defaultCurrency);
   const [exchangeRate, setExchangeRate] = useState(defaultCurrency === "LKR" ? "1" : "");
-  const [bankReference, setBankReference] = useState("");
+  const [method, setMethod] = useState<TransferMethod>("TT");
   const [transferDate, setTransferDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [bankReference, setBankReference] = useState("");
   const [receipt, setReceipt] = useState<File | null>(null);
   const [lcDocument, setLcDocument] = useState<File | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -34,41 +38,48 @@ export default function SupplierAdvanceForm({
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!otherPartyId) {
+      setError("Pick the other party for this transfer.");
+      return;
+    }
+
     setSaving(true);
 
     const { data: userData } = await supabase.auth.getUser();
+    const sourceId = direction === "TO_SUPPLIER" ? otherPartyId : supplierEntityId;
+    const destinationId = direction === "TO_SUPPLIER" ? supplierEntityId : otherPartyId;
 
-    const { data: inserted, error } = await supabase
-      .from("supplier_advances")
+    const { data: transfer, error: transferError } = await supabase
+      .from("cash_transfers")
       .insert({
-        supplier_id: supplierId,
-        type,
+        source_entity_id: sourceId,
+        destination_entity_id: destinationId,
         amount: Number(amount),
         currency,
         exchange_rate_to_lkr: currency === "LKR" ? 1 : Number(exchangeRate),
-        bank_reference: bankReference || null,
         transfer_date: transferDate,
+        method,
+        bank_reference: bankReference || null,
         created_by: userData.user?.id,
       })
       .select("id")
       .single();
 
-    if (error) {
+    if (transferError) {
       setSaving(false);
-      setError(error.message);
+      setError(transferError.message);
       return;
     }
 
     const updates: Record<string, string> = {};
     try {
-      if (receipt) {
-        updates.receipt_path = await uploadFile(supabase, "receipt-attachments", inserted.id, receipt);
-      }
-      if (lcDocument && type === "LC_TRANSFER") {
-        updates.lc_document_path = await uploadFile(supabase, "receipt-attachments", inserted.id, lcDocument);
+      if (receipt) updates.receipt_path = await uploadFile(supabase, "receipt-attachments", transfer.id, receipt);
+      if (lcDocument && method === "LC") {
+        updates.lc_document_path = await uploadFile(supabase, "receipt-attachments", transfer.id, lcDocument);
       }
       if (Object.keys(updates).length > 0) {
-        await supabase.from("supplier_advances").update(updates).eq("id", inserted.id);
+        await supabase.from("cash_transfers").update(updates).eq("id", transfer.id);
       }
     } catch (err) {
       setSaving(false);
@@ -84,13 +95,31 @@ export default function SupplierAdvanceForm({
     router.refresh();
   }
 
+  if (otherEntities.length === 0) {
+    return (
+      <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
+        No other cash entities yet — add a Bank or Cash entity in Settings before logging a transfer.
+      </p>
+    );
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2 rounded-md border border-gray-200 p-3">
-      <Field label="Type">
-        <select value={type} onChange={(e) => setType(e.target.value as AdvanceType)} className="input">
-          {(Object.keys(ADVANCE_TYPE_LABEL) as AdvanceType[]).map((t) => (
-            <option key={t} value={t}>
-              {ADVANCE_TYPE_LABEL[t]}
+    <form onSubmit={handleSubmit} className="grid grid-cols-4 gap-3 rounded-md border border-gray-200 p-3">
+      <Field label="Direction">
+        <select
+          value={direction}
+          onChange={(e) => setDirection(e.target.value as "TO_SUPPLIER" | "FROM_SUPPLIER")}
+          className="input"
+        >
+          <option value="TO_SUPPLIER">To supplier</option>
+          <option value="FROM_SUPPLIER">From supplier (refund)</option>
+        </select>
+      </Field>
+      <Field label="Other party">
+        <select value={otherPartyId} onChange={(e) => setOtherPartyId(e.target.value)} className="input">
+          {otherEntities.map((en) => (
+            <option key={en.id} value={en.id}>
+              {en.name}
             </option>
           ))}
         </select>
@@ -110,7 +139,7 @@ export default function SupplierAdvanceForm({
           required
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          className="input w-28"
+          className="input"
         />
       </Field>
       <Field label="Currency">
@@ -130,8 +159,17 @@ export default function SupplierAdvanceForm({
           disabled={currency === "LKR"}
           value={exchangeRate}
           onChange={(e) => setExchangeRate(e.target.value)}
-          className="input w-24 disabled:bg-gray-100 disabled:text-gray-400"
+          className="input disabled:bg-gray-100 disabled:text-gray-400"
         />
+      </Field>
+      <Field label="Method">
+        <select value={method} onChange={(e) => setMethod(e.target.value as TransferMethod)} className="input">
+          {(Object.keys(TRANSFER_METHOD_LABEL) as TransferMethod[]).map((m) => (
+            <option key={m} value={m}>
+              {TRANSFER_METHOD_LABEL[m]}
+            </option>
+          ))}
+        </select>
       </Field>
       <Field label="Bank reference">
         <input
@@ -149,7 +187,7 @@ export default function SupplierAdvanceForm({
           className="text-sm"
         />
       </Field>
-      {type === "LC_TRANSFER" && (
+      {method === "LC" && (
         <Field label="LC document (optional)">
           <input
             type="file"
@@ -159,14 +197,16 @@ export default function SupplierAdvanceForm({
           />
         </Field>
       )}
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-      >
-        {saving ? "…" : "Log transfer"}
-      </button>
-      {error && <p className="w-full text-sm text-red-600">{error}</p>}
+      <div className="col-span-4">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        >
+          {saving ? "…" : "Log transfer"}
+        </button>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      </div>
     </form>
   );
 }

@@ -6,6 +6,8 @@ import {
   formatMoney,
   VEHICLE_STATUS_LABEL,
   RECEIPT_METHOD_LABEL,
+  TRANSFER_METHOD_LABEL,
+  type CashEntity,
   type Vehicle,
   type VehicleDocument,
   type VehicleExpense,
@@ -34,7 +36,7 @@ export default async function VehicleDetailPage({
   const chassisNumber = decodeURIComponent(chassis);
   const supabase = await createClient();
 
-  const [vehicleRes, pnlRes, expensesRes, costHeadsRes, saleRes, customersRes, photosRes, documentsRes] =
+  const [vehicleRes, pnlRes, expensesRes, costHeadsRes, saleRes, customersRes, photosRes, documentsRes, entitiesRes] =
     await Promise.all([
       supabase
         .from("vehicles")
@@ -44,9 +46,8 @@ export default async function VehicleDetailPage({
       supabase.from("vehicle_pnl").select("*").eq("chassis_number", chassisNumber).single(),
       supabase
         .from("vehicle_expenses")
-        .select("*, cost_heads(*)")
-        .eq("chassis_number", chassisNumber)
-        .order("date_recorded", { ascending: false }),
+        .select("*, cost_heads(*), cash_transfers(*, source_entity:source_entity_id(*), destination_entity:destination_entity_id(*))")
+        .eq("chassis_number", chassisNumber),
       supabase.from("cost_heads").select("*").order("group_name"),
       supabase
         .from("sales")
@@ -64,6 +65,7 @@ export default async function VehicleDetailPage({
         .select("*")
         .eq("chassis_number", chassisNumber)
         .order("created_at", { ascending: false }),
+      supabase.from("cash_entities").select("*").order("name"),
     ]);
 
   if (vehicleRes.error || !vehicleRes.data) {
@@ -72,7 +74,9 @@ export default async function VehicleDetailPage({
 
   const vehicle = vehicleRes.data as Vehicle;
   const pnl = pnlRes.data as VehiclePnl | null;
-  const expenses = (expensesRes.data ?? []) as VehicleExpense[];
+  const expenses = ((expensesRes.data ?? []) as VehicleExpense[]).sort((a, b) =>
+    (b.cash_transfers?.transfer_date ?? "").localeCompare(a.cash_transfers?.transfer_date ?? ""),
+  );
   const costHeads = costHeadsRes.data ?? [];
   const sale = saleRes.data as Sale | null;
   const customers = (customersRes.data ?? []) as Customer[];
@@ -82,10 +86,14 @@ export default async function VehicleDetailPage({
   const documentUrls = await Promise.all(
     documents.map((d) => getSignedUrl(supabase, "vehicle-documents", d.storage_path)),
   );
+  const entities = (entitiesRes.data ?? []) as CashEntity[];
+  const supplierEntity = entities.find((e) => e.supplier_id === vehicle.supplier_id);
 
   const expenseAttachmentUrls = await Promise.all(
     expenses.map((e) =>
-      e.attachment_path ? getSignedUrl(supabase, "receipt-attachments", e.attachment_path) : Promise.resolve(null),
+      e.cash_transfers?.receipt_path
+        ? getSignedUrl(supabase, "receipt-attachments", e.cash_transfers.receipt_path)
+        : Promise.resolve(null),
     ),
   );
 
@@ -126,7 +134,10 @@ export default async function VehicleDetailPage({
             saleId={sale?.id ?? null}
             photoPaths={photos.map((p) => p.storage_path)}
             documentPaths={documents.map((d) => d.storage_path)}
-            expenseAttachmentPaths={expenses.flatMap((e) => (e.attachment_path ? [e.attachment_path] : []))}
+            expenseCashTransferIds={expenses.map((e) => e.cash_transfer_id)}
+            expenseReceiptPaths={expenses.flatMap((e) =>
+              e.cash_transfers?.receipt_path ? [e.cash_transfers.receipt_path] : [],
+            )}
           />
         </div>
       </div>
@@ -243,7 +254,8 @@ export default async function VehicleDetailPage({
         <VehicleExpenseForm
           chassisNumber={vehicle.chassis_number}
           costHeads={costHeads}
-          supplierPrimaryCurrency={vehicle.suppliers?.primary_currency}
+          entities={entities}
+          supplierEntityId={supplierEntity?.id}
         />
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
           {expenses.length === 0 ? (
@@ -254,6 +266,9 @@ export default async function VehicleDetailPage({
                 <tr className="text-left text-gray-500">
                   <th className="px-4 py-2">Date</th>
                   <th className="px-4 py-2">Cost head</th>
+                  <th className="px-4 py-2">Source</th>
+                  <th className="px-4 py-2">Destination</th>
+                  <th className="px-4 py-2">Method</th>
                   <th className="px-4 py-2">Remarks</th>
                   <th className="px-4 py-2">Amount</th>
                   <th className="px-4 py-2">LKR equiv.</th>
@@ -262,17 +277,22 @@ export default async function VehicleDetailPage({
                 </tr>
               </thead>
               <tbody>
-                {expenses.map((e, i) => (
+                {expenses.map((e, i) => {
+                  const ct = e.cash_transfers;
+                  return (
                   <tr key={e.id} className="border-t border-gray-100">
-                    <td className="px-4 py-2 text-gray-600">{e.date_recorded}</td>
+                    <td className="px-4 py-2 text-gray-600">{ct?.transfer_date}</td>
                     <td className="px-4 py-2 text-gray-600">
                       {e.cost_heads?.name ?? "—"}
                       <span className="ml-1 text-xs text-gray-400">({e.cost_heads?.group_name})</span>
                     </td>
+                    <td className="px-4 py-2 text-gray-600">{ct?.source_entity?.name ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">{ct?.destination_entity?.name ?? "—"}</td>
+                    <td className="px-4 py-2 text-gray-600">{ct ? TRANSFER_METHOD_LABEL[ct.method] : "—"}</td>
                     <td className="px-4 py-2 text-gray-600">{e.remarks ?? "—"}</td>
-                    <td className="px-4 py-2 text-gray-900">{formatMoney(e.amount, e.currency)}</td>
+                    <td className="px-4 py-2 text-gray-900">{ct ? formatMoney(ct.amount, ct.currency) : "—"}</td>
                     <td className="px-4 py-2 text-gray-600">
-                      {e.currency === "LKR" ? "—" : formatMoney(e.amount_lkr)}
+                      {ct && ct.currency !== "LKR" ? formatMoney(ct.amount_lkr) : "—"}
                     </td>
                     <td className="px-4 py-2 text-gray-600">
                       {expenseAttachmentUrls[i] ? (
@@ -289,17 +309,11 @@ export default async function VehicleDetailPage({
                       )}
                     </td>
                     <td className="px-4 py-2">
-                      <EntityDeleteButton
-                        what="this expense"
-                        table="vehicle_expenses"
-                        id={e.id}
-                        filesToDelete={
-                          e.attachment_path ? [{ bucket: "receipt-attachments", path: e.attachment_path }] : []
-                        }
-                      />
+                      <EntityDeleteButton what="this expense" table="cash_transfers" id={e.cash_transfer_id} />
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}

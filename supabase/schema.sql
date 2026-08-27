@@ -1,13 +1,15 @@
 -- Vehicle Import, Cost Ledger & Sales Management Platform schema
 -- Run this in the Supabase SQL editor (Project -> SQL Editor -> New query).
 -- WARNING: this drops and recreates every table except `profiles`. Destructive.
--- Also creates 6 Storage buckets (vehicle-photos, supplier-logos, resource-logos,
--- app-branding, receipt-attachments, vehicle-documents) — no manual Storage dashboard setup needed.
+-- Also creates 7 Storage buckets (vehicle-photos, supplier-logos, resource-logos,
+-- app-branding, receipt-attachments, vehicle-documents, cash-entity-logos) — no
+-- manual Storage dashboard setup needed.
 
 -- ============ Cleanup (FK-safe order) ============
+drop view if exists cash_entity_balance;
 drop view if exists model_summary;
 drop view if exists executive_summary;
-drop view if exists supplier_balance;
+drop view if exists supplier_balance; -- from an earlier version of this schema
 drop view if exists vehicle_pnl;
 drop view if exists car_profit; -- from the earlier prototype schema
 
@@ -15,14 +17,16 @@ drop table if exists app_settings cascade;
 drop table if exists resources cascade;
 drop table if exists overhead_expenses cascade;
 drop table if exists overhead_categories cascade;
-drop table if exists capital_injections cascade;
+drop table if exists capital_injections cascade; -- from an earlier version of this schema
 drop table if exists sale_receipts cascade;
 drop table if exists sales cascade;
 drop table if exists customers cascade;
-drop table if exists supplier_advances cascade;
+drop table if exists supplier_advances cascade; -- from an earlier version of this schema
 drop table if exists vehicle_photos cascade;
 drop table if exists vehicle_documents cascade;
 drop table if exists vehicle_expenses cascade;
+drop table if exists cash_transfers cascade;
+drop table if exists cash_entities cascade;
 drop table if exists vehicles cascade;
 drop table if exists vehicle_models cascade;
 drop table if exists cost_heads cascade;
@@ -35,8 +39,10 @@ drop table if exists cars cascade;
 
 drop table if exists suppliers cascade;
 
+drop type if exists transfer_method;
+drop type if exists cash_entity_type;
 drop type if exists receipt_method;
-drop type if exists advance_type;
+drop type if exists advance_type; -- from an earlier version of this schema
 drop type if exists leasing_status_t;
 drop type if exists payment_type_t;
 drop type if exists vehicle_status_t;
@@ -66,8 +72,12 @@ create trigger on_auth_user_created
 create type vehicle_status_t as enum ('BOUGHT_NOT_RECEIVED', 'IN_STOCK', 'SOLD_PENDING_PAYMENT', 'SOLD_FULLY_CLOSED');
 create type payment_type_t as enum ('DIRECT_CASH', 'LEASING', 'HYBRID');
 create type leasing_status_t as enum ('NOT_APPLICABLE', 'PENDING', 'RECEIVED');
-create type advance_type as enum ('TT_DEPOSIT', 'LC_TRANSFER', 'REFUND');
 create type receipt_method as enum ('ADVANCE', 'DIRECT_CASH', 'LEASING_DISBURSAL');
+-- 'CASH' is not one of the 8 originally requested types — added for pools like Petty Cash,
+-- which is physical cash-in-hand rather than a bank account.
+create type cash_entity_type as enum
+  ('GOVERNMENT', 'PORT', 'SUPPLIER', 'DRIVER', 'MECHANIC', 'INVESTOR', 'BANK', 'CLEARING_AGENT', 'CASH');
+create type transfer_method as enum ('TT', 'LC', 'CASH', 'BANK_TRANSFER', 'OTHER');
 
 -- ============ App-wide settings (singleton row) ============
 create table app_settings (
@@ -90,6 +100,47 @@ create table suppliers (
   logo_path text,
   created_at timestamptz not null default now()
 );
+
+-- ============ Cash entities (people/orgs/pools that money moves between) ============
+-- Every supplier automatically gets one of these (type SUPPLIER, kept in sync by the
+-- trigger below) so supplier balances are just a filtered view of the same mechanism
+-- used for banks, petty cash, drivers, mechanics, investors, etc.
+create table cash_entities (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  type cash_entity_type not null,
+  logo_path text,
+  primary_currency text not null default 'LKR',
+  supplier_id uuid unique references suppliers (id) on delete cascade,
+  created_at timestamptz not null default now()
+);
+
+insert into cash_entities (name, type) values
+  ('HIPG', 'PORT'),
+  ('Sri Lanka Customs', 'GOVERNMENT'),
+  ('Colombo Port', 'PORT'),
+  ('RMV', 'GOVERNMENT'),
+  ('Petty Cash', 'CASH');
+
+create or replace function sync_cash_entity_from_supplier()
+returns trigger as $$
+begin
+  if tg_op = 'INSERT' then
+    insert into cash_entities (name, type, logo_path, primary_currency, supplier_id)
+    values (new.name, 'SUPPLIER', new.logo_path, new.primary_currency, new.id);
+  else
+    update cash_entities
+    set name = new.name, logo_path = new.logo_path, primary_currency = new.primary_currency
+    where supplier_id = new.id;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists on_supplier_change on suppliers;
+create trigger on_supplier_change
+  after insert or update of name, logo_path, primary_currency on suppliers
+  for each row execute procedure sync_cash_entity_from_supplier();
 
 -- ============ Cost heads (lookup, seeded from SRS section 3.2) ============
 create table cost_heads (
@@ -281,59 +332,42 @@ create table vehicle_documents (
   created_at timestamptz not null default now()
 );
 
--- ============ Dynamic cost ledger ============
--- Every money-tracking table below shares the same currency convention:
--- `amount` is in `currency`; `exchange_rate_to_lkr` converts 1 unit of that currency to LKR;
--- `amount_lkr` is a generated column so every view/aggregate can sum LKR consistently.
+-- ============ Cash transfers (the unified money-movement ledger) ============
+-- Every transfer moves money from one cash entity to another. Vehicle/overhead
+-- expenses, supplier deposits/refunds, and capital injections are all just
+-- transfers with different source/destination entities — see vehicle_expenses,
+-- overhead_expenses below, which wrap a transfer with a cost classification.
+create table cash_transfers (
+  id uuid primary key default gen_random_uuid(),
+  source_entity_id uuid not null references cash_entities (id),
+  destination_entity_id uuid not null references cash_entities (id),
+  amount numeric(15, 2) not null,
+  currency text not null default 'LKR',
+  exchange_rate_to_lkr numeric(12, 6) not null default 1,
+  amount_lkr numeric(15, 2) generated always as (round(amount * exchange_rate_to_lkr, 2)) stored,
+  transfer_date date not null default current_date,
+  method transfer_method not null default 'OTHER',
+  purpose text,
+  notes text,
+  bank_reference text,
+  receipt_path text,
+  lc_document_path text,
+  created_by uuid references profiles (id),
+  created_at timestamptz not null default now(),
+  check (source_entity_id <> destination_entity_id)
+);
+
+-- ============ Dynamic cost ledger (wraps a cash transfer with a vehicle + cost head) ============
 create table vehicle_expenses (
   id uuid primary key default gen_random_uuid(),
   chassis_number text not null references vehicles (chassis_number) on delete cascade,
   cost_head_id uuid not null references cost_heads (id),
-  amount numeric(15, 2) not null,
-  currency text not null default 'LKR',
-  exchange_rate_to_lkr numeric(12, 6) not null default 1,
-  amount_lkr numeric(15, 2) generated always as (round(amount * exchange_rate_to_lkr, 2)) stored,
-  date_recorded date not null default current_date,
+  cash_transfer_id uuid not null unique references cash_transfers (id) on delete cascade,
   remarks text,
-  attachment_path text,
-  created_by uuid references profiles (id),
   created_at timestamptz not null default now()
 );
 
--- ============ Supplier advance credit ledger ============
-create table supplier_advances (
-  id uuid primary key default gen_random_uuid(),
-  supplier_id uuid not null references suppliers (id) on delete cascade,
-  type advance_type not null,
-  amount numeric(15, 2) not null,
-  currency text not null default 'JPY',
-  exchange_rate_to_lkr numeric(12, 6) not null default 1,
-  amount_lkr numeric(15, 2) generated always as (round(amount * exchange_rate_to_lkr, 2)) stored,
-  bank_reference text,
-  transfer_date date not null default current_date,
-  notes text,
-  receipt_path text,
-  lc_document_path text,
-  created_by uuid references profiles (id),
-  created_at timestamptz not null default now()
-);
-
--- ============ Capital injections (funding into the business, not tied to a vehicle) ============
-create table capital_injections (
-  id uuid primary key default gen_random_uuid(),
-  amount numeric(15, 2) not null,
-  currency text not null default 'LKR',
-  exchange_rate_to_lkr numeric(12, 6) not null default 1,
-  amount_lkr numeric(15, 2) generated always as (round(amount * exchange_rate_to_lkr, 2)) stored,
-  storage_location text not null,
-  source text,
-  injection_date date not null default current_date,
-  notes text,
-  created_by uuid references profiles (id),
-  created_at timestamptz not null default now()
-);
-
--- ============ Overhead expenses (not tied to a vehicle) ============
+-- ============ Overhead expenses (wraps a cash transfer with a category, not tied to a vehicle) ============
 create table overhead_categories (
   id uuid primary key default gen_random_uuid(),
   name text not null unique
@@ -349,14 +383,8 @@ insert into overhead_categories (name) values
 create table overhead_expenses (
   id uuid primary key default gen_random_uuid(),
   category_id uuid not null references overhead_categories (id),
-  amount numeric(15, 2) not null,
-  currency text not null default 'LKR',
-  exchange_rate_to_lkr numeric(12, 6) not null default 1,
-  amount_lkr numeric(15, 2) generated always as (round(amount * exchange_rate_to_lkr, 2)) stored,
-  expense_date date not null default current_date,
+  cash_transfer_id uuid not null unique references cash_transfers (id) on delete cascade,
   remarks text,
-  attachment_path text,
-  created_by uuid references profiles (id),
   created_at timestamptz not null default now()
 );
 
@@ -444,9 +472,10 @@ select
 from vehicles v
 join vehicle_models vm on vm.id = v.model_id
 left join (
-  select chassis_number, sum(amount_lkr) as total_landed_cost
-  from vehicle_expenses
-  group by chassis_number
+  select ve.chassis_number, sum(ct.amount_lkr) as total_landed_cost
+  from vehicle_expenses ve
+  join cash_transfers ct on ct.id = ve.cash_transfer_id
+  group by ve.chassis_number
 ) exp on exp.chassis_number = v.chassis_number
 left join sales s on s.chassis_number = v.chassis_number
 left join (
@@ -455,70 +484,57 @@ left join (
   group by sale_id
 ) rec on rec.sale_id = s.id;
 
-create view supplier_balance as
+create view cash_entity_balance as
 select
-  sup.id as supplier_id,
-  sup.name,
-  sup.primary_currency,
-  coalesce(dep_lkr.total, 0) as total_deposits_lkr,
-  coalesce(ref_lkr.total, 0) as total_refunds_lkr,
-  coalesce(ded_lkr.total, 0) as total_deducted_lkr,
-  coalesce(dep_lkr.total, 0) - coalesce(ded_lkr.total, 0) + coalesce(ref_lkr.total, 0) as available_balance_lkr,
-  coalesce(dep_native.total, 0) as total_deposits_native,
-  coalesce(ref_native.total, 0) as total_refunds_native,
-  coalesce(ded_native.total, 0) as total_deducted_native,
-  coalesce(dep_native.total, 0) - coalesce(ded_native.total, 0) + coalesce(ref_native.total, 0) as available_balance_native
-from suppliers sup
+  ce.id as entity_id,
+  ce.name,
+  ce.type,
+  ce.primary_currency,
+  ce.supplier_id,
+  coalesce(in_lkr.total, 0) as total_in_lkr,
+  coalesce(out_lkr.total, 0) as total_out_lkr,
+  coalesce(in_lkr.total, 0) - coalesce(out_lkr.total, 0) as balance_lkr,
+  coalesce(in_native.total, 0) as total_in_native,
+  coalesce(out_native.total, 0) as total_out_native,
+  coalesce(in_native.total, 0) - coalesce(out_native.total, 0) as balance_native
+from cash_entities ce
 left join (
-  select supplier_id, sum(amount_lkr) as total
-  from supplier_advances where type in ('TT_DEPOSIT', 'LC_TRANSFER')
-  group by supplier_id
-) dep_lkr on dep_lkr.supplier_id = sup.id
+  select destination_entity_id, sum(amount_lkr) as total
+  from cash_transfers
+  group by destination_entity_id
+) in_lkr on in_lkr.destination_entity_id = ce.id
 left join (
-  select supplier_id, sum(amount_lkr) as total
-  from supplier_advances where type = 'REFUND'
-  group by supplier_id
-) ref_lkr on ref_lkr.supplier_id = sup.id
+  select source_entity_id, sum(amount_lkr) as total
+  from cash_transfers
+  group by source_entity_id
+) out_lkr on out_lkr.source_entity_id = ce.id
 left join (
-  select v.supplier_id, sum(e.amount_lkr) as total
-  from vehicle_expenses e
-  join vehicles v on v.chassis_number = e.chassis_number
-  join cost_heads ch on ch.id = e.cost_head_id
-  where ch.name in ('LC Amount', 'TT Amount')
-  group by v.supplier_id
-) ded_lkr on ded_lkr.supplier_id = sup.id
+  select ct.destination_entity_id, sum(ct.amount) as total
+  from cash_transfers ct
+  join cash_entities e on e.id = ct.destination_entity_id
+  where ct.currency = e.primary_currency
+  group by ct.destination_entity_id
+) in_native on in_native.destination_entity_id = ce.id
 left join (
-  select sa.supplier_id, sum(sa.amount) as total
-  from supplier_advances sa
-  join suppliers s on s.id = sa.supplier_id
-  where sa.type in ('TT_DEPOSIT', 'LC_TRANSFER') and sa.currency = s.primary_currency
-  group by sa.supplier_id
-) dep_native on dep_native.supplier_id = sup.id
-left join (
-  select sa.supplier_id, sum(sa.amount) as total
-  from supplier_advances sa
-  join suppliers s on s.id = sa.supplier_id
-  where sa.type = 'REFUND' and sa.currency = s.primary_currency
-  group by sa.supplier_id
-) ref_native on ref_native.supplier_id = sup.id
-left join (
-  select v.supplier_id, sum(e.amount) as total
-  from vehicle_expenses e
-  join vehicles v on v.chassis_number = e.chassis_number
-  join cost_heads ch on ch.id = e.cost_head_id
-  join suppliers s on s.id = v.supplier_id
-  where ch.name in ('LC Amount', 'TT Amount') and e.currency = s.primary_currency
-  group by v.supplier_id
-) ded_native on ded_native.supplier_id = sup.id;
+  select ct.source_entity_id, sum(ct.amount) as total
+  from cash_transfers ct
+  join cash_entities e on e.id = ct.source_entity_id
+  where ct.currency = e.primary_currency
+  group by ct.source_entity_id
+) out_native on out_native.source_entity_id = ce.id;
 
 create view executive_summary as
 select
-  (select coalesce(sum(amount_lkr), 0) from vehicle_expenses) as total_capital_invested,
+  (select coalesce(sum(ct.amount_lkr), 0)
+     from vehicle_expenses ve join cash_transfers ct on ct.id = ve.cash_transfer_id) as total_capital_invested,
   (select coalesce(sum(amount), 0) from sale_receipts) as total_cash_received,
   (select coalesce(sum(net_profit), 0) from vehicle_pnl where vehicle_status = 'SOLD_FULLY_CLOSED') as total_realized_profit,
   (select coalesce(sum(balance_due), 0) from vehicle_pnl where balance_due is not null) as outstanding_receivables,
-  (select coalesce(sum(amount_lkr), 0) from capital_injections) as total_capital_injected,
-  (select coalesce(sum(amount_lkr), 0) from overhead_expenses) as total_overhead_expenses;
+  (select coalesce(sum(ct.amount_lkr), 0)
+     from cash_transfers ct join cash_entities e on e.id = ct.source_entity_id
+     where e.type = 'INVESTOR') as total_capital_injected,
+  (select coalesce(sum(ct.amount_lkr), 0)
+     from overhead_expenses oe join cash_transfers ct on ct.id = oe.cash_transfer_id) as total_overhead_expenses;
 
 create view model_summary as
 select
@@ -614,13 +630,15 @@ create trigger on_receipt_change
   for each row execute procedure sync_vehicle_status_on_receipt_change();
 
 -- ============ Storage buckets ============
--- Photos/logos are public (stable URLs, low sensitivity). Receipts are private (signed URLs),
--- since they can show bank references/amounts. Upsert-style so reruns don't wipe existing files.
+-- Photos/logos are public (stable URLs, low sensitivity). Receipts/documents are private
+-- (signed URLs), since they can show bank references/amounts. Upsert-style so reruns
+-- don't wipe existing files.
 insert into storage.buckets (id, name, public)
 values
   ('vehicle-photos', 'vehicle-photos', true),
   ('supplier-logos', 'supplier-logos', true),
   ('resource-logos', 'resource-logos', true),
+  ('cash-entity-logos', 'cash-entity-logos', true),
   ('app-branding', 'app-branding', true),
   ('receipt-attachments', 'receipt-attachments', false),
   ('vehicle-documents', 'vehicle-documents', false)
@@ -630,11 +648,17 @@ drop policy if exists "authenticated manage app files" on storage.objects;
 create policy "authenticated manage app files" on storage.objects
   for all
   using (
-    bucket_id in ('vehicle-photos', 'supplier-logos', 'resource-logos', 'app-branding', 'receipt-attachments', 'vehicle-documents')
+    bucket_id in (
+      'vehicle-photos', 'supplier-logos', 'resource-logos', 'cash-entity-logos',
+      'app-branding', 'receipt-attachments', 'vehicle-documents'
+    )
     and auth.role() = 'authenticated'
   )
   with check (
-    bucket_id in ('vehicle-photos', 'supplier-logos', 'resource-logos', 'app-branding', 'receipt-attachments', 'vehicle-documents')
+    bucket_id in (
+      'vehicle-photos', 'supplier-logos', 'resource-logos', 'cash-entity-logos',
+      'app-branding', 'receipt-attachments', 'vehicle-documents'
+    )
     and auth.role() = 'authenticated'
   );
 
@@ -643,14 +667,14 @@ create policy "authenticated manage app files" on storage.objects
 alter table profiles enable row level security;
 alter table app_settings enable row level security;
 alter table suppliers enable row level security;
+alter table cash_entities enable row level security;
+alter table cash_transfers enable row level security;
 alter table cost_heads enable row level security;
 alter table vehicle_models enable row level security;
 alter table vehicles enable row level security;
 alter table vehicle_photos enable row level security;
 alter table vehicle_documents enable row level security;
 alter table vehicle_expenses enable row level security;
-alter table supplier_advances enable row level security;
-alter table capital_injections enable row level security;
 alter table overhead_categories enable row level security;
 alter table overhead_expenses enable row level security;
 alter table resources enable row level security;
@@ -666,14 +690,14 @@ create policy "authenticated update own profile" on profiles for update using (a
 
 create policy "authenticated full access app_settings" on app_settings for all using (auth.role() = 'authenticated');
 create policy "authenticated full access suppliers" on suppliers for all using (auth.role() = 'authenticated');
+create policy "authenticated full access cash_entities" on cash_entities for all using (auth.role() = 'authenticated');
+create policy "authenticated full access cash_transfers" on cash_transfers for all using (auth.role() = 'authenticated');
 create policy "authenticated full access cost_heads" on cost_heads for all using (auth.role() = 'authenticated');
 create policy "authenticated full access vehicle_models" on vehicle_models for all using (auth.role() = 'authenticated');
 create policy "authenticated full access vehicles" on vehicles for all using (auth.role() = 'authenticated');
 create policy "authenticated full access vehicle_photos" on vehicle_photos for all using (auth.role() = 'authenticated');
 create policy "authenticated full access vehicle_documents" on vehicle_documents for all using (auth.role() = 'authenticated');
 create policy "authenticated full access vehicle_expenses" on vehicle_expenses for all using (auth.role() = 'authenticated');
-create policy "authenticated full access supplier_advances" on supplier_advances for all using (auth.role() = 'authenticated');
-create policy "authenticated full access capital_injections" on capital_injections for all using (auth.role() = 'authenticated');
 create policy "authenticated full access overhead_categories" on overhead_categories for all using (auth.role() = 'authenticated');
 create policy "authenticated full access overhead_expenses" on overhead_expenses for all using (auth.role() = 'authenticated');
 create policy "authenticated full access resources" on resources for all using (auth.role() = 'authenticated');

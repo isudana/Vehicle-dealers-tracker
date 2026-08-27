@@ -43,8 +43,8 @@ export default function NavBar({
           <Link href="/customers" className="text-sm text-gray-600 hover:text-gray-900">
             Customers
           </Link>
-          <Link href="/capital" className="text-sm text-gray-600 hover:text-gray-900">
-            Capital
+          <Link href="/cash" className="text-sm text-gray-600 hover:text-gray-900">
+            Cash
           </Link>
           <Link href="/overheads" className="text-sm text-gray-600 hover:text-gray-900">
             Overheads

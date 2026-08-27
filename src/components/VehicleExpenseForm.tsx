@@ -4,26 +4,42 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
-import { CURRENCIES, type CostHead } from "@/lib/types";
+import { CURRENCIES, TRANSFER_METHOD_LABEL, type CashEntity, type CostHead, type TransferMethod } from "@/lib/types";
 
-const SUPPLIER_DEDUCTION_COST_HEADS = ["LC Amount", "TT Amount"];
+// Cost heads with an obvious default destination entity, matched by name against the
+// fetched entity list (still fully changeable). LC Amount / TT Amount default to the
+// vehicle's own supplier entity instead — handled separately below.
+const COST_HEAD_DEFAULT_ENTITY_NAME: Record<string, string> = {
+  "HIPG Charges": "HIPG",
+  "Customs Duty": "Sri Lanka Customs",
+  "DO Charges": "Colombo Port",
+  "RMV Penalty": "RMV",
+};
 
 export default function VehicleExpenseForm({
   chassisNumber,
   costHeads,
-  supplierPrimaryCurrency,
+  entities,
+  supplierEntityId,
 }: {
   chassisNumber: string;
   costHeads: CostHead[];
-  supplierPrimaryCurrency?: string;
+  entities: CashEntity[];
+  supplierEntityId?: string;
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const defaultSource = entities.find((e) => e.type === "CASH") ?? entities[0];
+
   const [costHeadId, setCostHeadId] = useState(costHeads[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("LKR");
   const [currencyTouched, setCurrencyTouched] = useState(false);
   const [exchangeRate, setExchangeRate] = useState("1");
+  const [sourceId, setSourceId] = useState(defaultSource?.id ?? "");
+  const [destinationId, setDestinationId] = useState("");
+  const [destinationTouched, setDestinationTouched] = useState(false);
+  const [method, setMethod] = useState<TransferMethod>("CASH");
   const [dateRecorded, setDateRecorded] = useState(() => new Date().toISOString().slice(0, 10));
   const [remarks, setRemarks] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -38,49 +54,79 @@ export default function VehicleExpenseForm({
     if (touched) setCurrencyTouched(true);
   }
 
+  function applyDestination(id: string, touched: boolean) {
+    setDestinationId(id);
+    if (touched) {
+      setDestinationTouched(true);
+      return;
+    }
+    if (!currencyTouched) {
+      const dest = entities.find((e) => e.id === id);
+      if (dest) handleCurrencyChange(dest.primary_currency, false);
+    }
+  }
+
   function handleCostHeadChange(newCostHeadId: string) {
     setCostHeadId(newCostHeadId);
-
-    if (currencyTouched || !supplierPrimaryCurrency || supplierPrimaryCurrency === "LKR") return;
+    if (destinationTouched) return;
 
     const head = costHeads.find((c) => c.id === newCostHeadId);
-    if (head && SUPPLIER_DEDUCTION_COST_HEADS.includes(head.name)) {
-      handleCurrencyChange(supplierPrimaryCurrency, false);
+    if (!head) return;
+
+    if ((head.name === "LC Amount" || head.name === "TT Amount") && supplierEntityId) {
+      applyDestination(supplierEntityId, false);
+      return;
+    }
+
+    const defaultName = COST_HEAD_DEFAULT_ENTITY_NAME[head.name];
+    if (defaultName) {
+      const match = entities.find((e) => e.name === defaultName);
+      if (match) applyDestination(match.id, false);
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!sourceId || !destinationId) {
+      setError("Pick both a source and a destination entity.");
+      return;
+    }
+    if (sourceId === destinationId) {
+      setError("Source and destination must be different entities.");
+      return;
+    }
+
     setSaving(true);
 
     const { data: userData } = await supabase.auth.getUser();
 
-    const { data: inserted, error } = await supabase
-      .from("vehicle_expenses")
+    const { data: transfer, error: transferError } = await supabase
+      .from("cash_transfers")
       .insert({
-        chassis_number: chassisNumber,
-        cost_head_id: costHeadId,
+        source_entity_id: sourceId,
+        destination_entity_id: destinationId,
         amount: Number(amount),
         currency,
         exchange_rate_to_lkr: currency === "LKR" ? 1 : Number(exchangeRate),
-        date_recorded: dateRecorded,
-        remarks: remarks || null,
+        transfer_date: dateRecorded,
+        method,
         created_by: userData.user?.id,
       })
       .select("id")
       .single();
 
-    if (error) {
+    if (transferError) {
       setSaving(false);
-      setError(error.message);
+      setError(transferError.message);
       return;
     }
 
     if (attachment) {
       try {
-        const path = await uploadFile(supabase, "receipt-attachments", inserted.id, attachment);
-        await supabase.from("vehicle_expenses").update({ attachment_path: path }).eq("id", inserted.id);
+        const path = await uploadFile(supabase, "receipt-attachments", transfer.id, attachment);
+        await supabase.from("cash_transfers").update({ receipt_path: path }).eq("id", transfer.id);
       } catch (err) {
         setSaving(false);
         setError(err instanceof Error ? err.message : "Attachment upload failed");
@@ -88,15 +134,36 @@ export default function VehicleExpenseForm({
       }
     }
 
+    const { error } = await supabase.from("vehicle_expenses").insert({
+      chassis_number: chassisNumber,
+      cost_head_id: costHeadId,
+      cash_transfer_id: transfer.id,
+      remarks: remarks || null,
+    });
+
     setSaving(false);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
     setAmount("");
     setRemarks("");
     setAttachment(null);
     router.refresh();
   }
 
+  if (entities.length === 0) {
+    return (
+      <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
+        No cash entities yet — add one in Settings before recording expenses.
+      </p>
+    );
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2 rounded-md border border-gray-200 p-3">
+    <form onSubmit={handleSubmit} className="grid grid-cols-4 gap-3 rounded-md border border-gray-200 p-3">
       <Field label="Cost head">
         <select value={costHeadId} onChange={(e) => handleCostHeadChange(e.target.value)} className="input">
           {groups.map((group) => (
@@ -127,15 +194,11 @@ export default function VehicleExpenseForm({
           required
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          className="input w-28"
+          className="input"
         />
       </Field>
       <Field label="Currency">
-        <select
-          value={currency}
-          onChange={(e) => handleCurrencyChange(e.target.value, true)}
-          className="input"
-        >
+        <select value={currency} onChange={(e) => handleCurrencyChange(e.target.value, true)} className="input">
           {CURRENCIES.map((c) => (
             <option key={c} value={c}>
               {c}
@@ -151,17 +214,44 @@ export default function VehicleExpenseForm({
           disabled={currency === "LKR"}
           value={exchangeRate}
           onChange={(e) => setExchangeRate(e.target.value)}
-          placeholder={currency === "LKR" ? undefined : "e.g. 2.15"}
-          className="input w-24 disabled:bg-gray-100 disabled:text-gray-400"
+          className="input disabled:bg-gray-100 disabled:text-gray-400"
         />
       </Field>
-      <Field label="Remarks">
-        <input
-          type="text"
-          value={remarks}
-          onChange={(e) => setRemarks(e.target.value)}
+      <Field label="Source (paid from)">
+        <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className="input">
+          {entities.map((en) => (
+            <option key={en.id} value={en.id}>
+              {en.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Destination (paid to)">
+        <select
+          required
+          value={destinationId}
+          onChange={(e) => applyDestination(e.target.value, true)}
           className="input"
-        />
+        >
+          <option value="">Select…</option>
+          {entities.map((en) => (
+            <option key={en.id} value={en.id}>
+              {en.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Method">
+        <select value={method} onChange={(e) => setMethod(e.target.value as TransferMethod)} className="input">
+          {(Object.keys(TRANSFER_METHOD_LABEL) as TransferMethod[]).map((m) => (
+            <option key={m} value={m}>
+              {TRANSFER_METHOD_LABEL[m]}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Remarks">
+        <input type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} className="input" />
       </Field>
       <Field label="Receipt (optional)">
         <input
@@ -171,14 +261,16 @@ export default function VehicleExpenseForm({
           className="text-sm"
         />
       </Field>
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-      >
-        {saving ? "…" : "Add expense"}
-      </button>
-      {error && <p className="w-full text-sm text-red-600">{error}</p>}
+      <div className="col-span-4">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        >
+          {saving ? "…" : "Add expense"}
+        </button>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      </div>
     </form>
   );
 }

@@ -4,15 +4,32 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
-import { CURRENCIES, type OverheadCategory } from "@/lib/types";
+import {
+  CURRENCIES,
+  TRANSFER_METHOD_LABEL,
+  type CashEntity,
+  type OverheadCategory,
+  type TransferMethod,
+} from "@/lib/types";
 
-export default function OverheadExpenseForm({ categories }: { categories: OverheadCategory[] }) {
+export default function OverheadExpenseForm({
+  categories,
+  entities,
+}: {
+  categories: OverheadCategory[];
+  entities: CashEntity[];
+}) {
   const router = useRouter();
   const supabase = createClient();
+  const defaultSource = entities.find((e) => e.type === "CASH") ?? entities[0];
+
   const [categoryId, setCategoryId] = useState(categories[0]?.id ?? "");
   const [amount, setAmount] = useState("");
   const [currency, setCurrency] = useState("LKR");
   const [exchangeRate, setExchangeRate] = useState("1");
+  const [sourceId, setSourceId] = useState(defaultSource?.id ?? "");
+  const [destinationId, setDestinationId] = useState("");
+  const [method, setMethod] = useState<TransferMethod>("CASH");
   const [expenseDate, setExpenseDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [remarks, setRemarks] = useState("");
   const [attachment, setAttachment] = useState<File | null>(null);
@@ -21,40 +38,51 @@ export default function OverheadExpenseForm({ categories }: { categories: Overhe
 
   function handleCurrencyChange(value: string) {
     setCurrency(value);
-    if (value === "LKR") setExchangeRate("1");
+    setExchangeRate(value === "LKR" ? "1" : "");
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (!sourceId || !destinationId) {
+      setError("Pick both a source and a destination entity.");
+      return;
+    }
+    if (sourceId === destinationId) {
+      setError("Source and destination must be different entities.");
+      return;
+    }
+
     setSaving(true);
 
     const { data: userData } = await supabase.auth.getUser();
 
-    const { data: inserted, error } = await supabase
-      .from("overhead_expenses")
+    const { data: transfer, error: transferError } = await supabase
+      .from("cash_transfers")
       .insert({
-        category_id: categoryId,
+        source_entity_id: sourceId,
+        destination_entity_id: destinationId,
         amount: Number(amount),
         currency,
         exchange_rate_to_lkr: currency === "LKR" ? 1 : Number(exchangeRate),
-        expense_date: expenseDate,
-        remarks: remarks || null,
+        transfer_date: expenseDate,
+        method,
         created_by: userData.user?.id,
       })
       .select("id")
       .single();
 
-    if (error) {
+    if (transferError) {
       setSaving(false);
-      setError(error.message);
+      setError(transferError.message);
       return;
     }
 
     if (attachment) {
       try {
-        const path = await uploadFile(supabase, "receipt-attachments", inserted.id, attachment);
-        await supabase.from("overhead_expenses").update({ attachment_path: path }).eq("id", inserted.id);
+        const path = await uploadFile(supabase, "receipt-attachments", transfer.id, attachment);
+        await supabase.from("cash_transfers").update({ receipt_path: path }).eq("id", transfer.id);
       } catch (err) {
         setSaving(false);
         setError(err instanceof Error ? err.message : "Attachment upload failed");
@@ -62,15 +90,35 @@ export default function OverheadExpenseForm({ categories }: { categories: Overhe
       }
     }
 
+    const { error } = await supabase.from("overhead_expenses").insert({
+      category_id: categoryId,
+      cash_transfer_id: transfer.id,
+      remarks: remarks || null,
+    });
+
     setSaving(false);
+
+    if (error) {
+      setError(error.message);
+      return;
+    }
+
     setAmount("");
     setRemarks("");
     setAttachment(null);
     router.refresh();
   }
 
+  if (entities.length === 0) {
+    return (
+      <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
+        No cash entities yet — add one in Settings before recording expenses.
+      </p>
+    );
+  }
+
   return (
-    <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-2 rounded-md border border-gray-200 p-3">
+    <form onSubmit={handleSubmit} className="grid grid-cols-4 gap-3 rounded-md border border-gray-200 p-3">
       <Field label="Category">
         <select value={categoryId} onChange={(e) => setCategoryId(e.target.value)} className="input">
           {categories.map((c) => (
@@ -90,7 +138,7 @@ export default function OverheadExpenseForm({ categories }: { categories: Overhe
           required
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
-          className="input w-28"
+          className="input"
         />
       </Field>
       <Field label="Currency">
@@ -110,8 +158,36 @@ export default function OverheadExpenseForm({ categories }: { categories: Overhe
           disabled={currency === "LKR"}
           value={exchangeRate}
           onChange={(e) => setExchangeRate(e.target.value)}
-          className="input w-24 disabled:bg-gray-100 disabled:text-gray-400"
+          className="input disabled:bg-gray-100 disabled:text-gray-400"
         />
+      </Field>
+      <Field label="Source (paid from)">
+        <select value={sourceId} onChange={(e) => setSourceId(e.target.value)} className="input">
+          {entities.map((en) => (
+            <option key={en.id} value={en.id}>
+              {en.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Destination (paid to)">
+        <select required value={destinationId} onChange={(e) => setDestinationId(e.target.value)} className="input">
+          <option value="">Select…</option>
+          {entities.map((en) => (
+            <option key={en.id} value={en.id}>
+              {en.name}
+            </option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Method">
+        <select value={method} onChange={(e) => setMethod(e.target.value as TransferMethod)} className="input">
+          {(Object.keys(TRANSFER_METHOD_LABEL) as TransferMethod[]).map((m) => (
+            <option key={m} value={m}>
+              {TRANSFER_METHOD_LABEL[m]}
+            </option>
+          ))}
+        </select>
       </Field>
       <Field label="Remarks">
         <input type="text" value={remarks} onChange={(e) => setRemarks(e.target.value)} className="input" />
@@ -124,14 +200,16 @@ export default function OverheadExpenseForm({ categories }: { categories: Overhe
           className="text-sm"
         />
       </Field>
-      <button
-        type="submit"
-        disabled={saving}
-        className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
-      >
-        {saving ? "…" : "Add expense"}
-      </button>
-      {error && <p className="w-full text-sm text-red-600">{error}</p>}
+      <div className="col-span-4">
+        <button
+          type="submit"
+          disabled={saving}
+          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800 disabled:opacity-50"
+        >
+          {saving ? "…" : "Add expense"}
+        </button>
+        {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      </div>
     </form>
   );
 }

@@ -1,11 +1,15 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatMoney, type SupplierBalance } from "@/lib/types";
+import { formatMoney, type CashEntityBalance } from "@/lib/types";
 
 export default async function SuppliersPage() {
   const supabase = await createClient();
-  const { data, error } = await supabase.from("supplier_balance").select("*").order("name");
-  const balances = (data ?? []) as SupplierBalance[];
+  const { data, error } = await supabase
+    .from("cash_entity_balance")
+    .select("*")
+    .eq("type", "SUPPLIER")
+    .order("name");
+  const balances = (data ?? []) as CashEntityBalance[];
 
   return (
     <div className="space-y-6">
@@ -36,26 +40,18 @@ export default async function SuppliersPage() {
             </thead>
             <tbody>
               {balances.map((s) => (
-                <tr key={s.supplier_id} className="border-t border-gray-100">
+                <tr key={s.entity_id} className="border-t border-gray-100">
                   <td className="px-4 py-2">
                     <Link href={`/suppliers/${s.supplier_id}`} className="text-gray-900 hover:underline">
                       {s.name}
                     </Link>
                   </td>
                   <td className="px-4 py-2 text-gray-600">{s.primary_currency}</td>
-                  <td
-                    className={`px-4 py-2 ${
-                      s.available_balance_native < 0 ? "text-red-700" : "text-gray-600"
-                    }`}
-                  >
-                    {formatMoney(s.available_balance_native, s.primary_currency)}
+                  <td className={`px-4 py-2 ${s.balance_native < 0 ? "text-red-700" : "text-gray-600"}`}>
+                    {formatMoney(s.balance_native, s.primary_currency)}
                   </td>
-                  <td
-                    className={`px-4 py-2 font-medium ${
-                      s.available_balance_lkr < 0 ? "text-red-700" : "text-gray-900"
-                    }`}
-                  >
-                    {formatMoney(s.available_balance_lkr)}
+                  <td className={`px-4 py-2 font-medium ${s.balance_lkr < 0 ? "text-red-700" : "text-gray-900"}`}>
+                    {formatMoney(s.balance_lkr)}
                   </td>
                 </tr>
               ))}
