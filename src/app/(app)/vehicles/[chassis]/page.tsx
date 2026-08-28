@@ -5,6 +5,7 @@ import { getPublicUrl, getSignedUrl } from "@/lib/storage";
 import {
   formatMoney,
   VEHICLE_STATUS_LABEL,
+  SPARE_KEY_STATUS_LABEL,
   RECEIPT_METHOD_LABEL,
   TRANSFER_METHOD_LABEL,
   type CashEntity,
@@ -250,6 +251,23 @@ export default async function VehicleDetailPage({
             <span className="text-gray-900">
               {vehicle.cif_price != null ? formatMoney(vehicle.cif_price, vehicle.cif_price_currency) : "—"}
             </span>
+          </span>
+        </div>
+        <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
+          <span>
+            Auction purchase date: <span className="text-gray-900">{vehicle.purchase_date ?? "—"}</span>
+          </span>
+          <span>
+            LC open date: <span className="text-gray-900">{vehicle.lc_open_date ?? "—"}</span>
+          </span>
+          <span>
+            Landed date: <span className="text-gray-900">{vehicle.landed_date ?? "—"}</span>
+          </span>
+          <span>
+            Cleared date: <span className="text-gray-900">{vehicle.cleared_date ?? "—"}</span>
+          </span>
+          <span>
+            Spare key: <span className="text-gray-900">{SPARE_KEY_STATUS_LABEL[vehicle.spare_key_status]}</span>
           </span>
         </div>
         <VehicleEditForm vehicle={vehicle} suppliers={suppliers} models={models} />

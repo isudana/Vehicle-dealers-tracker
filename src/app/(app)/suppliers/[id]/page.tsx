@@ -10,9 +10,12 @@ import {
   type CashEntityBalance,
   type CashTransfer,
   type Supplier,
+  type SupplierBalanceHold,
   type Vehicle,
 } from "@/lib/types";
 import SupplierTransferForm from "@/components/SupplierTransferForm";
+import SupplierHoldForm from "@/components/SupplierHoldForm";
+import SupplierHoldEditForm from "@/components/SupplierHoldEditForm";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
 import Modal from "@/components/Modal";
 
@@ -20,12 +23,17 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   const { id } = await params;
   const supabase = await createClient();
 
-  const [supplierRes, entitiesRes, vehiclesRes] = await Promise.all([
+  const [supplierRes, entitiesRes, vehiclesRes, holdsRes] = await Promise.all([
     supabase.from("suppliers").select("*").eq("id", id).single(),
     supabase.from("cash_entities").select("*").order("name"),
     supabase
       .from("vehicles")
       .select("*, vehicle_models(*)")
+      .eq("supplier_id", id)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("supplier_balance_holds")
+      .select("*")
       .eq("supplier_id", id)
       .order("created_at", { ascending: false }),
   ]);
@@ -40,6 +48,10 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   const supplierEntity = entities.find((e) => e.supplier_id === supplier.id && e.category === "CASH_ENTITY");
   const otherEntities = entities.filter((e) => e.supplier_id !== supplier.id);
   const vehicles = (vehiclesRes.data ?? []) as Vehicle[];
+  const holds = (holdsRes.data ?? []) as SupplierBalanceHold[];
+  const totalHeldNative = holds.reduce((sum, h) => sum + h.amount, 0);
+  const totalHeldLkr = holds.reduce((sum, h) => sum + h.amount_lkr, 0);
+  const pendingSpareKeyCount = vehicles.filter((v) => v.spare_key_status === "PENDING").length;
   const logoUrl = supplier.logo_path ? getPublicUrl(supabase, "supplier-logos", supplier.logo_path) : null;
 
   let balance: CashEntityBalance | null = null;
@@ -153,6 +165,24 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
 
       <div>
         <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
+          Balance available for purchases (Account balance minus active holds)
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <SummaryCard
+            label={`In ${supplier.primary_currency}`}
+            value={formatMoney((balance?.balance_native ?? 0) - totalHeldNative, supplier.primary_currency)}
+            highlight={(balance?.balance_native ?? 0) - totalHeldNative < 0}
+          />
+          <SummaryCard
+            label="In LKR"
+            value={formatMoney((balance?.balance_lkr ?? 0) - totalHeldLkr)}
+            highlight={(balance?.balance_lkr ?? 0) - totalHeldLkr < 0}
+          />
+        </div>
+      </div>
+
+      <div>
+        <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">
           Total paid for vehicles (all time)
         </p>
         <div className="grid grid-cols-2 gap-4">
@@ -163,6 +193,56 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
           <SummaryCard label="In LKR" value={formatMoney(entityBalance?.balance_lkr ?? 0)} />
         </div>
       </div>
+
+      <section className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-gray-900">Holds</h2>
+          <Modal triggerLabel="+ Add hold" title="Add a hold on this supplier's balance">
+            <SupplierHoldForm supplierId={supplier.id} defaultCurrency={supplier.primary_currency} />
+          </Modal>
+        </div>
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          {holds.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-gray-500">No holds on this supplier&rsquo;s balance.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500">
+                  <th className="px-4 py-2">Date</th>
+                  <th className="px-4 py-2">Amount</th>
+                  <th className="px-4 py-2">LKR equiv.</th>
+                  <th className="px-4 py-2">Reason</th>
+                  <th className="px-4 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {holds.map((h) => (
+                  <tr key={h.id} className="border-t border-gray-100">
+                    <td className="px-4 py-2 text-gray-600">{h.created_at.slice(0, 10)}</td>
+                    <td className="px-4 py-2 text-gray-900">{formatMoney(h.amount, supplier.primary_currency)}</td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {supplier.primary_currency === "LKR" ? "—" : formatMoney(h.amount_lkr)}
+                    </td>
+                    <td className="px-4 py-2 text-gray-600">{h.reason ?? "—"}</td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-3">
+                        <SupplierHoldEditForm
+                          holdId={h.id}
+                          amount={h.amount}
+                          exchangeRateToLkr={h.exchange_rate_to_lkr}
+                          reason={h.reason}
+                          currency={supplier.primary_currency}
+                        />
+                        <EntityDeleteButton what="this hold" table="supplier_balance_holds" id={h.id} />
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -268,6 +348,11 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700">
             {vehicles.length} vehicle{vehicles.length === 1 ? "" : "s"} bought
           </span>
+          {pendingSpareKeyCount > 0 && (
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+              {pendingSpareKeyCount} pending spare key{pendingSpareKeyCount === 1 ? "" : "s"}
+            </span>
+          )}
         </div>
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
           {vehicles.length === 0 ? (

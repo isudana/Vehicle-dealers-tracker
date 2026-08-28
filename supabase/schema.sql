@@ -10,6 +10,7 @@ drop view if exists cash_entity_balance;
 drop view if exists model_summary;
 drop view if exists executive_summary;
 drop view if exists supplier_balance; -- from an earlier version of this schema
+drop view if exists supplier_balance_holds_summary;
 drop view if exists vehicle_pnl;
 drop view if exists car_profit; -- from the earlier prototype schema
 
@@ -18,6 +19,7 @@ drop table if exists resources cascade;
 drop table if exists overhead_expenses cascade;
 drop table if exists overhead_categories cascade;
 drop table if exists capital_injections cascade; -- from an earlier version of this schema
+drop table if exists supplier_balance_holds cascade;
 drop table if exists invoices cascade;
 drop table if exists sale_receipts cascade;
 drop table if exists sales cascade;
@@ -49,6 +51,7 @@ drop type if exists advance_type; -- from an earlier version of this schema
 drop type if exists leasing_status_t;
 drop type if exists payment_type_t;
 drop type if exists vehicle_status_t;
+drop type if exists spare_key_status_t;
 
 -- ============ Profiles (unchanged, auth-linked) ============
 create table if not exists profiles (
@@ -75,6 +78,7 @@ create trigger on_auth_user_created
 create type vehicle_status_t as enum ('BOUGHT_NOT_RECEIVED', 'IN_STOCK', 'SOLD_PENDING_PAYMENT', 'SOLD_FULLY_CLOSED');
 create type payment_type_t as enum ('DIRECT_CASH', 'LEASING', 'HYBRID');
 create type leasing_status_t as enum ('NOT_APPLICABLE', 'PENDING', 'RECEIVED');
+create type spare_key_status_t as enum ('AVAILABLE', 'PENDING', 'NOT_AVAILABLE', 'RECEIVED');
 create type receipt_method as enum ('ADVANCE', 'DIRECT_CASH', 'LEASING_DISBURSAL');
 -- 'CASH' and 'OTHER' are not among the 8 originally requested types — 'CASH' was added for
 -- pools like Petty Cash (physical cash-in-hand rather than a bank account), 'OTHER' as a
@@ -116,6 +120,25 @@ create table suppliers (
   logo_path text,
   created_at timestamptz not null default now()
 );
+
+-- ============ Supplier balance holds (temporary reservations against a supplier's Account) ============
+-- "Balance available for purchases" = the supplier's Account balance minus the sum of its
+-- active holds — a distinct, more actionable figure than the raw balance.
+create table supplier_balance_holds (
+  id uuid primary key default gen_random_uuid(),
+  supplier_id uuid not null references suppliers (id) on delete cascade,
+  amount numeric(15, 2) not null,
+  exchange_rate_to_lkr numeric(12, 6) not null default 1,
+  amount_lkr numeric(15, 2) generated always as (round(amount * exchange_rate_to_lkr, 2)) stored,
+  reason text,
+  created_by uuid references profiles (id),
+  created_at timestamptz not null default now()
+);
+
+create view supplier_balance_holds_summary as
+select supplier_id, sum(amount) as total_held_native, sum(amount_lkr) as total_held_lkr
+from supplier_balance_holds
+group by supplier_id;
 
 -- ============ Cash entities (people/orgs/pools that money moves between) ============
 -- Every supplier automatically gets TWO of these (type SUPPLIER, kept in sync by the
@@ -340,8 +363,11 @@ create table vehicles (
   auction_price_currency text not null default 'LKR',
   cif_price numeric(15, 2),
   cif_price_currency text not null default 'LKR',
-  purchase_date date,
-  expected_clearance_date date,
+  purchase_date date, -- "Auction purchase date" in the UI
+  lc_open_date date,
+  landed_date date,
+  cleared_date date,
+  spare_key_status spare_key_status_t not null default 'PENDING',
   vehicle_status vehicle_status_t not null default 'BOUGHT_NOT_RECEIVED',
   notes text,
   created_by uuid references profiles (id),
@@ -531,6 +557,8 @@ select
   v.vehicle_status,
   v.supplier_id,
   v.target_listing_price,
+  v.landed_date,
+  case when v.landed_date is not null then (current_date - v.landed_date) else null end as days_since_landed,
   coalesce(exp.total_landed_cost, 0) as total_landed_cost,
   s.id as sale_id,
   s.agreed_sale_price,
@@ -755,6 +783,7 @@ create policy "authenticated manage app files" on storage.objects
 alter table profiles enable row level security;
 alter table app_settings enable row level security;
 alter table suppliers enable row level security;
+alter table supplier_balance_holds enable row level security;
 alter table cash_entities enable row level security;
 alter table cash_transfers enable row level security;
 alter table cost_heads enable row level security;
@@ -779,6 +808,7 @@ create policy "authenticated update own profile" on profiles for update using (a
 
 create policy "authenticated full access app_settings" on app_settings for all using (auth.role() = 'authenticated');
 create policy "authenticated full access suppliers" on suppliers for all using (auth.role() = 'authenticated');
+create policy "authenticated full access supplier_balance_holds" on supplier_balance_holds for all using (auth.role() = 'authenticated');
 create policy "authenticated full access cash_entities" on cash_entities for all using (auth.role() = 'authenticated');
 create policy "authenticated full access cash_transfers" on cash_transfers for all using (auth.role() = 'authenticated');
 create policy "authenticated full access cost_heads" on cost_heads for all using (auth.role() = 'authenticated');

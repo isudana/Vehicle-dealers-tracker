@@ -3,7 +3,14 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { CURRENCIES, type Supplier, type Vehicle, type VehicleModel } from "@/lib/types";
+import {
+  CURRENCIES,
+  SPARE_KEY_STATUS_LABEL,
+  type Supplier,
+  type SpareKeyStatus,
+  type Vehicle,
+  type VehicleModel,
+} from "@/lib/types";
 
 export default function VehicleEditForm({
   vehicle,
@@ -27,7 +34,10 @@ export default function VehicleEditForm({
   const [cifPrice, setCifPrice] = useState(vehicle.cif_price != null ? String(vehicle.cif_price) : "");
   const [cifCurrency, setCifCurrency] = useState(vehicle.cif_price_currency);
   const [purchaseDate, setPurchaseDate] = useState(vehicle.purchase_date ?? "");
-  const [expectedClearanceDate, setExpectedClearanceDate] = useState(vehicle.expected_clearance_date ?? "");
+  const [lcOpenDate, setLcOpenDate] = useState(vehicle.lc_open_date ?? "");
+  const [landedDate, setLandedDate] = useState(vehicle.landed_date ?? "");
+  const [clearedDate, setClearedDate] = useState(vehicle.cleared_date ?? "");
+  const [spareKeyStatus, setSpareKeyStatus] = useState<SpareKeyStatus>(vehicle.spare_key_status);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -49,7 +59,10 @@ export default function VehicleEditForm({
         cif_price: cifPrice ? Number(cifPrice) : null,
         cif_price_currency: cifCurrency,
         purchase_date: purchaseDate || null,
-        expected_clearance_date: expectedClearanceDate || null,
+        lc_open_date: lcOpenDate || null,
+        landed_date: landedDate || null,
+        cleared_date: clearedDate || null,
+        spare_key_status: spareKeyStatus,
       })
       .eq("chassis_number", vehicle.chassis_number);
 
@@ -154,7 +167,7 @@ export default function VehicleEditForm({
           </select>
         </div>
       </Field>
-      <Field label="Purchase date">
+      <Field label="Auction purchase date">
         <input
           type="date"
           value={purchaseDate}
@@ -162,13 +175,27 @@ export default function VehicleEditForm({
           className="input"
         />
       </Field>
-      <Field label="Expected clearance date">
-        <input
-          type="date"
-          value={expectedClearanceDate}
-          onChange={(e) => setExpectedClearanceDate(e.target.value)}
+      <Field label="LC open date">
+        <input type="date" value={lcOpenDate} onChange={(e) => setLcOpenDate(e.target.value)} className="input" />
+      </Field>
+      <Field label="Landed date">
+        <input type="date" value={landedDate} onChange={(e) => setLandedDate(e.target.value)} className="input" />
+      </Field>
+      <Field label="Cleared date">
+        <input type="date" value={clearedDate} onChange={(e) => setClearedDate(e.target.value)} className="input" />
+      </Field>
+      <Field label="Spare key">
+        <select
+          value={spareKeyStatus}
+          onChange={(e) => setSpareKeyStatus(e.target.value as SpareKeyStatus)}
           className="input"
-        />
+        >
+          {(Object.keys(SPARE_KEY_STATUS_LABEL) as SpareKeyStatus[]).map((s) => (
+            <option key={s} value={s}>
+              {SPARE_KEY_STATUS_LABEL[s]}
+            </option>
+          ))}
+        </select>
       </Field>
       <div className="col-span-4 flex items-center gap-3">
         <button

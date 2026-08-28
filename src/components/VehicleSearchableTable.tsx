@@ -2,7 +2,14 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { formatMoney, VEHICLE_STATUS_LABEL, type VehiclePnl, type VehicleStatus } from "@/lib/types";
+import {
+  formatMoney,
+  landedAgeTone,
+  LANDED_AGE_TONE_CLASSES,
+  VEHICLE_STATUS_LABEL,
+  type VehiclePnl,
+  type VehicleStatus,
+} from "@/lib/types";
 
 const STATE_ORDER: VehicleStatus[] = [
   "BOUGHT_NOT_RECEIVED",
@@ -50,6 +57,7 @@ export default function VehicleSearchableTable({
             title={VEHICLE_STATUS_LABEL[status]}
             rows={filtered.filter((v) => v.vehicle_status === status)}
             photoUrlByChassis={photoUrlByChassis}
+            showLandedAge={status === "IN_STOCK"}
           />
         ))
       )}
@@ -61,10 +69,12 @@ function StatusTable({
   title,
   rows,
   photoUrlByChassis,
+  showLandedAge,
 }: {
   title: string;
   rows: VehiclePnl[];
   photoUrlByChassis: Record<string, string>;
+  showLandedAge: boolean;
 }) {
   if (rows.length === 0) return null;
 
@@ -79,6 +89,7 @@ function StatusTable({
             <th className="px-4 py-2"></th>
             <th className="px-4 py-2">Chassis No.</th>
             <th className="px-4 py-2">Vehicle</th>
+            {showLandedAge && <th className="px-4 py-2">Days since landed</th>}
             <th className="px-4 py-2">Landed cost</th>
             <th className="px-4 py-2">Sale price</th>
             <th className="px-4 py-2">Balance due</th>
@@ -89,6 +100,7 @@ function StatusTable({
           {rows.map((v) => {
             const photoUrl = photoUrlByChassis[v.chassis_number];
             const profit = v.net_profit ?? v.projected_profit;
+            const tone = landedAgeTone(v.days_since_landed);
             return (
               <tr key={v.chassis_number} className="border-t border-gray-100">
                 <td className="px-4 py-2">
@@ -111,6 +123,21 @@ function StatusTable({
                   {v.year ? `${v.year} ` : ""}
                   {v.make} {v.model}
                 </td>
+                {showLandedAge && (
+                  <td className="px-4 py-2">
+                    {v.days_since_landed != null ? (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+                          tone ? LANDED_AGE_TONE_CLASSES[tone] : "bg-gray-100 text-gray-500"
+                        }`}
+                      >
+                        {v.days_since_landed}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">—</span>
+                    )}
+                  </td>
+                )}
                 <td className="px-4 py-2 text-gray-600">{formatMoney(v.total_landed_cost)}</td>
                 <td className="px-4 py-2 text-gray-600">
                   {v.agreed_sale_price != null ? formatMoney(v.agreed_sale_price) : "—"}
