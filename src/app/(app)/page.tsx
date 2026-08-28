@@ -2,10 +2,13 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import {
   formatMoney,
+  landedAgeTone,
+  LANDED_AGE_TONE_CLASSES,
   VEHICLE_STATUS_LABEL,
   type CashEntity,
   type CashEntityBalance,
   type ExecutiveSummary,
+  type VehiclePnl,
   type VehicleStatus,
 } from "@/lib/types";
 
@@ -19,24 +22,43 @@ const STATE_ORDER: VehicleStatus[] = [
 export default async function DashboardPage() {
   const supabase = await createClient();
 
-  const [summaryRes, vehicleStatusesRes, supplierBalancesRes, leasingCompaniesRes, pendingSalesRes] =
-    await Promise.all([
-      supabase.from("executive_summary").select("*").single(),
-      supabase.from("vehicle_pnl").select("vehicle_status"),
-      supabase
-        .from("cash_entity_balance")
-        .select("*")
-        .eq("type", "SUPPLIER")
-        .eq("category", "CASH_ACCOUNT")
-        .order("name"),
-      supabase.from("cash_entities").select("*").eq("category", "LEASING_COMPANY").order("name"),
-      supabase.from("sales").select("leasing_company_id").eq("leasing_status", "PENDING"),
-    ]);
+  const [
+    summaryRes,
+    vehicleStatusesRes,
+    supplierBalancesRes,
+    supplierHoldsRes,
+    leasingCompaniesRes,
+    pendingSalesRes,
+    inStockVehiclesRes,
+  ] = await Promise.all([
+    supabase.from("executive_summary").select("*").single(),
+    supabase.from("vehicle_pnl").select("vehicle_status"),
+    supabase
+      .from("cash_entity_balance")
+      .select("*")
+      .eq("type", "SUPPLIER")
+      .eq("category", "CASH_ACCOUNT")
+      .order("name"),
+    supabase.from("supplier_balance_holds_summary").select("*"),
+    supabase.from("cash_entities").select("*").eq("category", "LEASING_COMPANY").order("name"),
+    supabase.from("sales").select("leasing_company_id").eq("leasing_status", "PENDING"),
+    supabase.from("vehicle_pnl").select("*").eq("vehicle_status", "IN_STOCK"),
+  ]);
 
   const summary = summaryRes.data as ExecutiveSummary | null;
   const vehicleStatuses = (vehicleStatusesRes.data ?? []) as { vehicle_status: VehicleStatus }[];
   const supplierBalances = (supplierBalancesRes.data ?? []) as CashEntityBalance[];
   const leasingCompanies = (leasingCompaniesRes.data ?? []) as CashEntity[];
+  const inStockVehicles = (inStockVehiclesRes.data ?? []) as VehiclePnl[];
+
+  const heldBySupplierId: Record<string, { native: number; lkr: number }> = {};
+  for (const h of (supplierHoldsRes.data ?? []) as { supplier_id: string; total_held_native: number; total_held_lkr: number }[]) {
+    heldBySupplierId[h.supplier_id] = { native: h.total_held_native, lkr: h.total_held_lkr };
+  }
+
+  const agingVehicles = inStockVehicles
+    .filter((v) => landedAgeTone(v.days_since_landed) === "red")
+    .sort((a, b) => (b.days_since_landed ?? 0) - (a.days_since_landed ?? 0));
 
   const countByStatus: Record<VehicleStatus, number> = {
     BOUGHT_NOT_RECEIVED: 0,
@@ -96,6 +118,53 @@ export default async function DashboardPage() {
       </section>
 
       <section className="space-y-3">
+        <div className="flex items-center gap-3">
+          <h2 className="text-sm font-medium text-gray-900">Aging inventory (&gt;2.5 months since landed)</h2>
+          <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+            {agingVehicles.length}
+          </span>
+        </div>
+        <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+          {agingVehicles.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-gray-500">No in-stock vehicles aging past 2.5 months.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500">
+                  <th className="px-4 py-2">Chassis No.</th>
+                  <th className="px-4 py-2">Vehicle</th>
+                  <th className="px-4 py-2">Days since landed</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agingVehicles.map((v) => (
+                  <tr key={v.chassis_number} className="border-t border-gray-100">
+                    <td className="px-4 py-2 text-gray-600">
+                      <Link
+                        href={`/vehicles/${encodeURIComponent(v.chassis_number)}`}
+                        className="text-gray-900 hover:underline"
+                      >
+                        {v.chassis_number}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-2 text-gray-600">
+                      {v.year ? `${v.year} ` : ""}
+                      {v.make} {v.model}
+                    </td>
+                    <td className="px-4 py-2">
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${LANDED_AGE_TONE_CLASSES.red}`}>
+                        {v.days_since_landed}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section className="space-y-3">
         <h2 className="text-sm font-medium text-gray-900">Supplier balances</h2>
         <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
           {supplierBalances.length === 0 ? (
@@ -107,24 +176,32 @@ export default async function DashboardPage() {
                   <th className="px-4 py-2">Name</th>
                   <th className="px-4 py-2">Balance (native)</th>
                   <th className="px-4 py-2">Balance (LKR)</th>
+                  <th className="px-4 py-2">Available for purchases</th>
                 </tr>
               </thead>
               <tbody>
-                {supplierBalances.map((s) => (
-                  <tr key={s.entity_id} className="border-t border-gray-100">
-                    <td className="px-4 py-2">
-                      <Link href={`/suppliers/${s.supplier_id}`} className="text-gray-900 hover:underline">
-                        {s.name}
-                      </Link>
-                    </td>
-                    <td className={`px-4 py-2 ${s.balance_native < 0 ? "text-red-700" : "text-gray-600"}`}>
-                      {formatMoney(s.balance_native, s.primary_currency)}
-                    </td>
-                    <td className={`px-4 py-2 font-medium ${s.balance_lkr < 0 ? "text-red-700" : "text-gray-900"}`}>
-                      {formatMoney(s.balance_lkr)}
-                    </td>
-                  </tr>
-                ))}
+                {supplierBalances.map((s) => {
+                  const held = s.supplier_id ? heldBySupplierId[s.supplier_id] : undefined;
+                  const availableNative = s.balance_native - (held?.native ?? 0);
+                  return (
+                    <tr key={s.entity_id} className="border-t border-gray-100">
+                      <td className="px-4 py-2">
+                        <Link href={`/suppliers/${s.supplier_id}`} className="text-gray-900 hover:underline">
+                          {s.name}
+                        </Link>
+                      </td>
+                      <td className={`px-4 py-2 ${s.balance_native < 0 ? "text-red-700" : "text-gray-600"}`}>
+                        {formatMoney(s.balance_native, s.primary_currency)}
+                      </td>
+                      <td className={`px-4 py-2 font-medium ${s.balance_lkr < 0 ? "text-red-700" : "text-gray-900"}`}>
+                        {formatMoney(s.balance_lkr)}
+                      </td>
+                      <td className={`px-4 py-2 ${availableNative < 0 ? "text-red-700" : "text-gray-600"}`}>
+                        {formatMoney(availableNative, s.primary_currency)}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}

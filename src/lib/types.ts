@@ -15,6 +15,30 @@ export type PaymentType = "DIRECT_CASH" | "LEASING" | "HYBRID";
 export type LeasingStatus = "NOT_APPLICABLE" | "PENDING" | "RECEIVED";
 export type ReceiptMethod = "ADVANCE" | "DIRECT_CASH" | "LEASING_DISBURSAL";
 
+export type SpareKeyStatus = "AVAILABLE" | "PENDING" | "NOT_AVAILABLE" | "RECEIVED";
+
+export const SPARE_KEY_STATUS_LABEL: Record<SpareKeyStatus, string> = {
+  AVAILABLE: "Available",
+  PENDING: "Not Received (Pending)",
+  NOT_AVAILABLE: "Not Available",
+  RECEIVED: "Received",
+};
+
+export function landedAgeTone(days: number | null): "green" | "yellow" | "amber" | "red" | null {
+  if (days == null) return null;
+  if (days < 30) return "green";
+  if (days < 60) return "yellow";
+  if (days < 75) return "amber";
+  return "red";
+}
+
+export const LANDED_AGE_TONE_CLASSES: Record<"green" | "yellow" | "amber" | "red", string> = {
+  green: "bg-green-100 text-green-700",
+  yellow: "bg-yellow-100 text-yellow-700",
+  amber: "bg-amber-100 text-amber-700",
+  red: "bg-red-100 text-red-700",
+};
+
 export const RECEIPT_METHOD_LABEL: Record<ReceiptMethod, string> = {
   ADVANCE: "Advance",
   DIRECT_CASH: "Direct Cash",
@@ -128,6 +152,16 @@ export type Supplier = {
   logo_path: string | null;
 };
 
+export type SupplierBalanceHold = {
+  id: string;
+  supplier_id: string;
+  amount: number;
+  exchange_rate_to_lkr: number;
+  amount_lkr: number;
+  reason: string | null;
+  created_at: string;
+};
+
 export type CostHead = {
   id: string;
   name: string;
@@ -153,7 +187,10 @@ export type Vehicle = {
   cif_price: number | null;
   cif_price_currency: string;
   purchase_date: string | null;
-  expected_clearance_date: string | null;
+  lc_open_date: string | null;
+  landed_date: string | null;
+  cleared_date: string | null;
+  spare_key_status: SpareKeyStatus;
   vehicle_status: VehicleStatus;
   notes: string | null;
   created_at: string;
@@ -279,6 +316,8 @@ export type VehiclePnl = {
   vehicle_status: VehicleStatus;
   supplier_id: string;
   target_listing_price: number;
+  landed_date: string | null;
+  days_since_landed: number | null;
   total_landed_cost: number;
   sale_id: string | null;
   agreed_sale_price: number | null;

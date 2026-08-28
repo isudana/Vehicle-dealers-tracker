@@ -4,7 +4,13 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { CURRENCIES, type Supplier, type VehicleModel } from "@/lib/types";
+import {
+  CURRENCIES,
+  SPARE_KEY_STATUS_LABEL,
+  type SpareKeyStatus,
+  type Supplier,
+  type VehicleModel,
+} from "@/lib/types";
 
 export default function NewVehiclePage() {
   const router = useRouter();
@@ -23,8 +29,11 @@ export default function NewVehiclePage() {
     cif_price: "",
     cif_price_currency: "LKR",
     purchase_date: "",
-    expected_clearance_date: "",
+    lc_open_date: "",
+    landed_date: "",
+    cleared_date: "",
   });
+  const [spareKeyStatus, setSpareKeyStatus] = useState<SpareKeyStatus>("PENDING");
   const [priceCurrencyTouched, setPriceCurrencyTouched] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -103,7 +112,10 @@ export default function NewVehiclePage() {
       cif_price: form.cif_price ? Number(form.cif_price) : null,
       cif_price_currency: form.cif_price_currency,
       purchase_date: form.purchase_date || null,
-      expected_clearance_date: form.expected_clearance_date || null,
+      lc_open_date: form.lc_open_date || null,
+      landed_date: form.landed_date || null,
+      cleared_date: form.cleared_date || null,
+      spare_key_status: spareKeyStatus,
       created_by: userData.user?.id,
     });
 
@@ -254,7 +266,7 @@ export default function NewVehiclePage() {
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="Purchase date">
+          <Field label="Auction purchase date">
             <input
               type="date"
               value={form.purchase_date}
@@ -262,15 +274,48 @@ export default function NewVehiclePage() {
               className="input"
             />
           </Field>
-          <Field label="Expected clearance date">
+          <Field label="LC open date">
             <input
               type="date"
-              value={form.expected_clearance_date}
-              onChange={(e) => update("expected_clearance_date", e.target.value)}
+              value={form.lc_open_date}
+              onChange={(e) => update("lc_open_date", e.target.value)}
               className="input"
             />
           </Field>
         </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Landed date">
+            <input
+              type="date"
+              value={form.landed_date}
+              onChange={(e) => update("landed_date", e.target.value)}
+              className="input"
+            />
+          </Field>
+          <Field label="Cleared date">
+            <input
+              type="date"
+              value={form.cleared_date}
+              onChange={(e) => update("cleared_date", e.target.value)}
+              className="input"
+            />
+          </Field>
+        </div>
+
+        <Field label="Spare key">
+          <select
+            value={spareKeyStatus}
+            onChange={(e) => setSpareKeyStatus(e.target.value as SpareKeyStatus)}
+            className="input"
+          >
+            {(Object.keys(SPARE_KEY_STATUS_LABEL) as SpareKeyStatus[]).map((s) => (
+              <option key={s} value={s}>
+                {SPARE_KEY_STATUS_LABEL[s]}
+              </option>
+            ))}
+          </select>
+        </Field>
 
         {error && <p className="text-sm text-red-600">{error}</p>}
 
