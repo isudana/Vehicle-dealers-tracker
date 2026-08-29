@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPublicUrl } from "@/lib/storage";
+import { getCurrentUserProfile } from "@/lib/auth";
 import type { Resource } from "@/lib/types";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
 
 export default async function ResourcesPage() {
+  const profile = await getCurrentUserProfile();
   const supabase = await createClient();
   const { data, error } = await supabase.from("resources").select("*").order("created_at");
   const resources = (data ?? []) as Resource[];
@@ -13,9 +15,11 @@ export default async function ResourcesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-gray-900">Business Resources</h1>
-        <Link href="/settings" className="text-sm text-gray-500 hover:text-gray-800">
-          + Add resource (Settings)
-        </Link>
+        {profile?.role === "ADMIN" && (
+          <Link href="/settings" className="text-sm text-gray-500 hover:text-gray-800">
+            + Add resource (Settings)
+          </Link>
+        )}
       </div>
 
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}

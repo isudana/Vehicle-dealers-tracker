@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/auth";
 import { formatMoney, type CashEntityBalance } from "@/lib/types";
 
 export default async function SuppliersPage() {
+  const profile = await getCurrentUserProfile();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("cash_entity_balance")
@@ -16,12 +18,14 @@ export default async function SuppliersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-gray-900">Suppliers</h1>
-        <Link
-          href="/settings"
-          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
-        >
-          + Add supplier
-        </Link>
+        {profile?.role === "ADMIN" && (
+          <Link
+            href="/settings"
+            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            + Add supplier
+          </Link>
+        )}
       </div>
 
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}

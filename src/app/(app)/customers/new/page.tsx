@@ -1,12 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 
 export default function NewCustomerPage() {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [fullName, setFullName] = useState("");
   const [nicPassport, setNicPassport] = useState("");
   const [phone, setPhone] = useState("");
@@ -40,6 +43,17 @@ export default function NewCustomerPage() {
     }
 
     router.push(`/customers/${data.id}`);
+  }
+
+  if (role === "VIEWER") {
+    return (
+      <div className="max-w-lg space-y-4">
+        <p className="text-sm text-gray-500">You don&apos;t have permission to add a customer.</p>
+        <Link href="/customers" className="text-sm text-gray-500 hover:text-gray-800">
+          ← Back to customers
+        </Link>
+      </div>
+    );
   }
 
   return (

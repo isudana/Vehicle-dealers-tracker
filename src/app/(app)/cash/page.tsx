@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/auth";
 import { getPublicUrl, getSignedUrl } from "@/lib/storage";
 import {
   CASH_ENTITY_CATEGORY_LABEL,
@@ -18,6 +19,7 @@ import Modal from "@/components/Modal";
 const CASH_ENTITY_CATEGORIES: CashEntityCategory[] = ["CASH_ACCOUNT", "CASH_ENTITY", "INVESTOR", "LEASING_COMPANY"];
 
 export default async function CashPage() {
+  const profile = await getCurrentUserProfile();
   const supabase = await createClient();
   const [entitiesRes, balancesRes, transfersRes, pendingSalesRes] = await Promise.all([
     supabase.from("cash_entities").select("*").order("name"),
@@ -74,9 +76,11 @@ export default async function CashPage() {
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-gray-900">Cash</h1>
         <div className="flex items-center gap-4">
-          <Link href="/settings" className="text-sm text-gray-500 hover:text-gray-800">
-            + Add cash entity (Settings)
-          </Link>
+          {profile?.role === "ADMIN" && (
+            <Link href="/settings" className="text-sm text-gray-500 hover:text-gray-800">
+              + Add cash entity (Settings)
+            </Link>
+          )}
           <Modal triggerLabel="+ Log a transfer" title="Log a transfer">
             <CashTransferForm entities={entities} />
           </Modal>
