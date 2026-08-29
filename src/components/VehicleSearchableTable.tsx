@@ -122,6 +122,11 @@ function StatusTable({
                 <td className="px-4 py-2 text-gray-600">
                   {v.year ? `${v.year} ` : ""}
                   {v.make} {v.model}
+                  {v.vehicle_status === "BOUGHT_NOT_RECEIVED" && v.sale_id && (
+                    <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                      Reserved
+                    </span>
+                  )}
                 </td>
                 {showLandedAge && (
                   <td className="px-4 py-2">

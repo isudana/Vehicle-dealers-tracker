@@ -386,26 +386,21 @@ export default async function VehicleDetailPage({
       <section className="space-y-3">
         <h2 className="text-sm font-medium text-gray-900">Sale</h2>
         {!sale ? (
-          vehicle.vehicle_status === "IN_STOCK" ? (
-            <SaleForm chassisNumber={vehicle.chassis_number} customers={customers} leasingCompanies={leasingCompanies} />
-          ) : (
-            <p className="rounded-md bg-gray-50 p-3 text-sm text-gray-500">
-              A vehicle must be In Stock before it can be sold.
-            </p>
-          )
+          <SaleForm chassisNumber={vehicle.chassis_number} customers={customers} leasingCompanies={leasingCompanies} />
         ) : (
           <div className="space-y-3">
+            {vehicle.vehicle_status === "BOUGHT_NOT_RECEIVED" && (
+              <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-700">
+                Reserved — this vehicle isn&apos;t in stock yet. It&apos;ll move to Sold once it lands.
+              </p>
+            )}
             <div className="rounded-lg border border-gray-200 bg-white p-4 text-sm text-gray-700">
               <div className="flex items-start justify-between">
                 <p>
                   <span className="font-medium">{sale.customers?.full_name}</span> ({sale.customers?.nic_passport}) ·{" "}
                   {sale.customers?.phone}
                 </p>
-                <EntityDeleteButton
-                  what="this sale (and its receipts) — the vehicle reverts to In Stock"
-                  table="sales"
-                  id={sale.id}
-                />
+                <EntityDeleteButton what="this sale (and its receipts)" table="sales" id={sale.id} />
               </div>
               <p className="mt-1 text-gray-600">
                 Payment type: {sale.payment_type} · Sale date: {sale.sale_date}
