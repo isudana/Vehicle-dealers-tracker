@@ -60,11 +60,34 @@ create table if not exists profiles (
   created_at timestamptz not null default now()
 );
 
+-- Role model: added the same way `profiles` itself is carved out from the drop/recreate
+-- cycle above (guarded, never dropped) — otherwise every schema re-run would wipe
+-- everyone's role back to the default. The one-time backfill below promotes whatever
+-- account(s) already exist to Admin so nobody is locked out the first time this lands.
+do $$ begin
+  if not exists (select 1 from pg_type where typname = 'user_role_t') then
+    create type user_role_t as enum ('ADMIN', 'STAFF', 'VIEWER');
+  end if;
+end $$;
+
+do $$ begin
+  if not exists (select 1 from information_schema.columns where table_name = 'profiles' and column_name = 'role') then
+    alter table profiles add column role user_role_t not null default 'VIEWER';
+    alter table profiles add column email text;
+    update profiles set role = 'ADMIN', email = u.email from auth.users u where u.id = profiles.id;
+  end if;
+end $$;
+
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
-  insert into public.profiles (id, display_name)
-  values (new.id, coalesce(new.raw_user_meta_data ->> 'display_name', new.email));
+  insert into public.profiles (id, display_name, email, role)
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data ->> 'display_name', new.email),
+    new.email,
+    coalesce((new.raw_user_meta_data ->> 'role')::user_role_t, 'VIEWER')
+  );
   return new;
 end;
 $$ language plpgsql security definer;
@@ -73,6 +96,29 @@ drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute procedure public.handle_new_user();
+
+create or replace function public.current_user_role()
+returns user_role_t
+language sql
+stable
+as $$
+  select role from public.profiles where id = auth.uid();
+$$;
+
+create or replace function public.enforce_profile_role_change()
+returns trigger as $$
+begin
+  if new.role is distinct from old.role and public.current_user_role() <> 'ADMIN' then
+    raise exception 'Only admins can change user roles';
+  end if;
+  return new;
+end;
+$$ language plpgsql security definer set search_path = public;
+
+drop trigger if exists on_profile_role_change on profiles;
+create trigger on_profile_role_change
+  before update on profiles
+  for each row execute procedure public.enforce_profile_role_change();
 
 -- ============ Enums ============
 create type vehicle_status_t as enum ('BOUGHT_NOT_RECEIVED', 'IN_STOCK', 'SOLD_PENDING_PAYMENT', 'SOLD_FULLY_CLOSED');
@@ -171,6 +217,10 @@ insert into cash_entities (name, type, category) values
   -- how a Leasing Company's balance reflects cumulative disbursements.
   ('Customer Payments', 'CUSTOMER', 'CASH_ACCOUNT');
 
+-- security definer: Staff can create suppliers, but `cash_entities` writes are Admin-only
+-- (it's a chart-of-accounts-style config table). This trigger's cash_entities writes are an
+-- internal effect of creating a supplier, not a user-facing "Staff edits the chart of
+-- accounts" action, so it needs to bypass the caller's own cash_entities grant.
 create or replace function sync_cash_entity_from_supplier()
 returns trigger as $$
 begin
@@ -185,7 +235,7 @@ begin
   end if;
   return new;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer set search_path = public;
 
 drop trigger if exists on_supplier_change on suppliers;
 create trigger on_supplier_change
@@ -761,16 +811,14 @@ values
 on conflict (id) do update set public = excluded.public;
 
 drop policy if exists "authenticated manage app files" on storage.objects;
-create policy "authenticated manage app files" on storage.objects
-  for all
+drop policy if exists "authenticated view app files" on storage.objects;
+drop policy if exists "staff upload app files" on storage.objects;
+drop policy if exists "staff replace app files" on storage.objects;
+drop policy if exists "admin delete app files" on storage.objects;
+
+create policy "authenticated view app files" on storage.objects
+  for select
   using (
-    bucket_id in (
-      'vehicle-photos', 'supplier-logos', 'resource-logos', 'cash-entity-logos',
-      'app-branding', 'receipt-attachments', 'vehicle-documents'
-    )
-    and auth.role() = 'authenticated'
-  )
-  with check (
     bucket_id in (
       'vehicle-photos', 'supplier-logos', 'resource-logos', 'cash-entity-logos',
       'app-branding', 'receipt-attachments', 'vehicle-documents'
@@ -778,8 +826,39 @@ create policy "authenticated manage app files" on storage.objects
     and auth.role() = 'authenticated'
   );
 
+create policy "staff upload app files" on storage.objects
+  for insert
+  with check (
+    bucket_id in (
+      'vehicle-photos', 'supplier-logos', 'resource-logos', 'cash-entity-logos',
+      'app-branding', 'receipt-attachments', 'vehicle-documents'
+    )
+    and public.current_user_role() in ('ADMIN', 'STAFF')
+  );
+
+create policy "staff replace app files" on storage.objects
+  for update
+  using (
+    bucket_id in (
+      'vehicle-photos', 'supplier-logos', 'resource-logos', 'cash-entity-logos',
+      'app-branding', 'receipt-attachments', 'vehicle-documents'
+    )
+    and public.current_user_role() in ('ADMIN', 'STAFF')
+  );
+
+create policy "admin delete app files" on storage.objects
+  for delete
+  using (
+    bucket_id in (
+      'vehicle-photos', 'supplier-logos', 'resource-logos', 'cash-entity-logos',
+      'app-branding', 'receipt-attachments', 'vehicle-documents'
+    )
+    and public.current_user_role() = 'ADMIN'
+  );
+
 -- ============ Row Level Security ============
--- Small trusted-team model: any authenticated user can read/write everything.
+-- Role-based model: Admin (everything), Staff (day-to-day operations, no deletes, no
+-- Settings), Viewer (read-only). See public.current_user_role().
 alter table profiles enable row level security;
 alter table app_settings enable row level security;
 alter table suppliers enable row level security;
@@ -803,24 +882,102 @@ alter table invoices enable row level security;
 -- `profiles` is never dropped above, so its policies must be dropped explicitly to make this script rerunnable.
 drop policy if exists "authenticated read profiles" on profiles;
 drop policy if exists "authenticated update own profile" on profiles;
+drop policy if exists "admin update any profile" on profiles;
 create policy "authenticated read profiles" on profiles for select using (auth.role() = 'authenticated');
 create policy "authenticated update own profile" on profiles for update using (auth.uid() = id);
+create policy "admin update any profile" on profiles for update using (public.current_user_role() = 'ADMIN');
 
-create policy "authenticated full access app_settings" on app_settings for all using (auth.role() = 'authenticated');
-create policy "authenticated full access suppliers" on suppliers for all using (auth.role() = 'authenticated');
-create policy "authenticated full access supplier_balance_holds" on supplier_balance_holds for all using (auth.role() = 'authenticated');
-create policy "authenticated full access cash_entities" on cash_entities for all using (auth.role() = 'authenticated');
-create policy "authenticated full access cash_transfers" on cash_transfers for all using (auth.role() = 'authenticated');
-create policy "authenticated full access cost_heads" on cost_heads for all using (auth.role() = 'authenticated');
-create policy "authenticated full access vehicle_models" on vehicle_models for all using (auth.role() = 'authenticated');
-create policy "authenticated full access vehicles" on vehicles for all using (auth.role() = 'authenticated');
-create policy "authenticated full access vehicle_photos" on vehicle_photos for all using (auth.role() = 'authenticated');
-create policy "authenticated full access vehicle_documents" on vehicle_documents for all using (auth.role() = 'authenticated');
-create policy "authenticated full access vehicle_expenses" on vehicle_expenses for all using (auth.role() = 'authenticated');
-create policy "authenticated full access overhead_categories" on overhead_categories for all using (auth.role() = 'authenticated');
-create policy "authenticated full access overhead_expenses" on overhead_expenses for all using (auth.role() = 'authenticated');
-create policy "authenticated full access resources" on resources for all using (auth.role() = 'authenticated');
-create policy "authenticated full access customers" on customers for all using (auth.role() = 'authenticated');
-create policy "authenticated full access sales" on sales for all using (auth.role() = 'authenticated');
-create policy "authenticated full access sale_receipts" on sale_receipts for all using (auth.role() = 'authenticated');
-create policy "authenticated full access invoices" on invoices for all using (auth.role() = 'authenticated');
+-- Group A — reference/config tables: everyone can read, only Admin can write.
+-- (app_settings, vehicle_models, cost_heads, overhead_categories, resources, cash_entities)
+create policy "read app_settings" on app_settings for select using (auth.role() = 'authenticated');
+create policy "admin write app_settings" on app_settings for insert with check (public.current_user_role() = 'ADMIN');
+create policy "admin update app_settings" on app_settings for update using (public.current_user_role() = 'ADMIN');
+create policy "admin delete app_settings" on app_settings for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read vehicle_models" on vehicle_models for select using (auth.role() = 'authenticated');
+create policy "admin write vehicle_models" on vehicle_models for insert with check (public.current_user_role() = 'ADMIN');
+create policy "admin update vehicle_models" on vehicle_models for update using (public.current_user_role() = 'ADMIN');
+create policy "admin delete vehicle_models" on vehicle_models for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read cost_heads" on cost_heads for select using (auth.role() = 'authenticated');
+create policy "admin write cost_heads" on cost_heads for insert with check (public.current_user_role() = 'ADMIN');
+create policy "admin update cost_heads" on cost_heads for update using (public.current_user_role() = 'ADMIN');
+create policy "admin delete cost_heads" on cost_heads for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read overhead_categories" on overhead_categories for select using (auth.role() = 'authenticated');
+create policy "admin write overhead_categories" on overhead_categories for insert with check (public.current_user_role() = 'ADMIN');
+create policy "admin update overhead_categories" on overhead_categories for update using (public.current_user_role() = 'ADMIN');
+create policy "admin delete overhead_categories" on overhead_categories for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read resources" on resources for select using (auth.role() = 'authenticated');
+create policy "admin write resources" on resources for insert with check (public.current_user_role() = 'ADMIN');
+create policy "admin update resources" on resources for update using (public.current_user_role() = 'ADMIN');
+create policy "admin delete resources" on resources for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read cash_entities" on cash_entities for select using (auth.role() = 'authenticated');
+create policy "admin write cash_entities" on cash_entities for insert with check (public.current_user_role() = 'ADMIN');
+create policy "admin update cash_entities" on cash_entities for update using (public.current_user_role() = 'ADMIN');
+create policy "admin delete cash_entities" on cash_entities for delete using (public.current_user_role() = 'ADMIN');
+
+-- Group B — operational tables: everyone can read, Admin+Staff can insert/update, only Admin can delete.
+-- (suppliers, supplier_balance_holds, vehicles, vehicle_photos, vehicle_documents, vehicle_expenses,
+--  cash_transfers, overhead_expenses, customers, sales, sale_receipts, invoices)
+create policy "read suppliers" on suppliers for select using (auth.role() = 'authenticated');
+create policy "staff write suppliers" on suppliers for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update suppliers" on suppliers for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete suppliers" on suppliers for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read supplier_balance_holds" on supplier_balance_holds for select using (auth.role() = 'authenticated');
+create policy "staff write supplier_balance_holds" on supplier_balance_holds for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update supplier_balance_holds" on supplier_balance_holds for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete supplier_balance_holds" on supplier_balance_holds for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read vehicles" on vehicles for select using (auth.role() = 'authenticated');
+create policy "staff write vehicles" on vehicles for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update vehicles" on vehicles for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete vehicles" on vehicles for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read vehicle_photos" on vehicle_photos for select using (auth.role() = 'authenticated');
+create policy "staff write vehicle_photos" on vehicle_photos for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update vehicle_photos" on vehicle_photos for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete vehicle_photos" on vehicle_photos for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read vehicle_documents" on vehicle_documents for select using (auth.role() = 'authenticated');
+create policy "staff write vehicle_documents" on vehicle_documents for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update vehicle_documents" on vehicle_documents for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete vehicle_documents" on vehicle_documents for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read vehicle_expenses" on vehicle_expenses for select using (auth.role() = 'authenticated');
+create policy "staff write vehicle_expenses" on vehicle_expenses for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update vehicle_expenses" on vehicle_expenses for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete vehicle_expenses" on vehicle_expenses for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read cash_transfers" on cash_transfers for select using (auth.role() = 'authenticated');
+create policy "staff write cash_transfers" on cash_transfers for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update cash_transfers" on cash_transfers for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete cash_transfers" on cash_transfers for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read overhead_expenses" on overhead_expenses for select using (auth.role() = 'authenticated');
+create policy "staff write overhead_expenses" on overhead_expenses for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update overhead_expenses" on overhead_expenses for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete overhead_expenses" on overhead_expenses for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read customers" on customers for select using (auth.role() = 'authenticated');
+create policy "staff write customers" on customers for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update customers" on customers for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete customers" on customers for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read sales" on sales for select using (auth.role() = 'authenticated');
+create policy "staff write sales" on sales for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update sales" on sales for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete sales" on sales for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read sale_receipts" on sale_receipts for select using (auth.role() = 'authenticated');
+create policy "staff write sale_receipts" on sale_receipts for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update sale_receipts" on sale_receipts for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete sale_receipts" on sale_receipts for delete using (public.current_user_role() = 'ADMIN');
+
+create policy "read invoices" on invoices for select using (auth.role() = 'authenticated');
+create policy "staff write invoices" on invoices for insert with check (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "staff update invoices" on invoices for update using (public.current_user_role() in ('ADMIN', 'STAFF'));
+create policy "admin delete invoices" on invoices for delete using (public.current_user_role() = 'ADMIN');

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 import {
   CURRENCIES,
   SPARE_KEY_STATUS_LABEL,
@@ -23,6 +24,7 @@ export default function VehicleEditForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [editing, setEditing] = useState(false);
   const [supplierId, setSupplierId] = useState(vehicle.supplier_id);
   const [modelId, setModelId] = useState(vehicle.model_id);
@@ -78,6 +80,7 @@ export default function VehicleEditForm({
   }
 
   if (!editing) {
+    if (role === "VIEWER") return null;
     return (
       <button
         type="button"

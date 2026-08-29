@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 
 export default function InvoiceEditForm({
   invoiceId,
@@ -17,11 +18,14 @@ export default function InvoiceEditForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [amount, setAmount] = useState(String(invoicedAmount));
   const [date, setDate] = useState(issueDate);
   const [notesValue, setNotesValue] = useState(notes ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  if (role === "VIEWER") return null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();

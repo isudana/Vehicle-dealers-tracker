@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 
 export default function SupplierHoldEditForm({
   holdId,
@@ -19,6 +20,7 @@ export default function SupplierHoldEditForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [editing, setEditing] = useState(false);
   const [amount, setAmount] = useState(String(initialAmount));
   const [exchangeRate, setExchangeRate] = useState(String(initialExchangeRate));
@@ -52,6 +54,7 @@ export default function SupplierHoldEditForm({
   }
 
   if (!editing) {
+    if (role === "VIEWER") return null;
     return (
       <button
         type="button"

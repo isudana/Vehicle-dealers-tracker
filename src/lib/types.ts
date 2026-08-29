@@ -1,3 +1,19 @@
+export type UserRole = "ADMIN" | "STAFF" | "VIEWER";
+
+export const USER_ROLE_LABEL: Record<UserRole, string> = {
+  ADMIN: "Admin",
+  STAFF: "Staff",
+  VIEWER: "Viewer",
+};
+
+export type Profile = {
+  id: string;
+  email: string | null;
+  display_name: string;
+  role: UserRole;
+  created_at: string;
+};
+
 export type VehicleStatus =
   | "BOUGHT_NOT_RECEIVED"
   | "IN_STOCK"
