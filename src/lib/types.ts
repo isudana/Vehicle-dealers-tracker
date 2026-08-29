@@ -40,6 +40,13 @@ export const SPARE_KEY_STATUS_LABEL: Record<SpareKeyStatus, string> = {
   RECEIVED: "Received",
 };
 
+export const SPARE_KEY_STATUS_TONE_CLASSES: Record<SpareKeyStatus, string> = {
+  AVAILABLE: "bg-green-100 text-green-700",
+  RECEIVED: "bg-green-100 text-green-700",
+  PENDING: "bg-amber-100 text-amber-700",
+  NOT_AVAILABLE: "bg-red-100 text-red-700",
+};
+
 export function landedAgeTone(days: number | null): "green" | "yellow" | "amber" | "red" | null {
   if (days == null) return null;
   if (days < 30) return "green";
