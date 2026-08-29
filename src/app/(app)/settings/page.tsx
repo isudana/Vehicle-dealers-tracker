@@ -20,6 +20,7 @@ import CashEntityForm from "@/components/CashEntityForm";
 import CashEntityEditForm from "@/components/CashEntityEditForm";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
 import UserRoleSelect from "@/components/UserRoleSelect";
+import DeleteUserButton from "@/components/DeleteUserButton";
 import Modal from "@/components/Modal";
 import AddUserForm from "@/components/AddUserForm";
 
@@ -70,7 +71,10 @@ export default async function SettingsPage() {
                       {USER_ROLE_LABEL[u.role]} (you)
                     </span>
                   ) : (
-                    <UserRoleSelect userId={u.id} role={u.role} />
+                    <div className="flex items-center gap-3">
+                      <UserRoleSelect userId={u.id} role={u.role} />
+                      <DeleteUserButton userId={u.id} what={`user "${u.display_name}"`} />
+                    </div>
                   )}
                 </li>
               ))}
