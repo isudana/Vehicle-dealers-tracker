@@ -211,17 +211,21 @@ create table cash_entities (
   unique (supplier_id, category)
 );
 
-insert into cash_entities (name, type, category) values
-  ('HIPG', 'PORT', 'CASH_ENTITY'),
-  ('Sri Lanka Customs', 'GOVERNMENT', 'CASH_ENTITY'),
-  ('Colombo Port', 'PORT', 'CASH_ENTITY'),
-  ('RMV', 'GOVERNMENT', 'CASH_ENTITY'),
-  ('Petty Cash', 'CASH', 'CASH_ACCOUNT'),
+-- logo_path values point at files already uploaded to the cash-entity-logos bucket
+-- (under defaults/) — this table is dropped/recreated on every schema re-run, but Storage
+-- objects aren't touched by this script, so re-seeding these paths keeps the logos attached
+-- instead of losing them on the next reset.
+insert into cash_entities (name, type, category, logo_path) values
+  ('HIPG', 'PORT', 'CASH_ENTITY', 'defaults/hipg.jpeg'),
+  ('Sri Lanka Customs', 'GOVERNMENT', 'CASH_ENTITY', 'defaults/sri-lanka-customs.png'),
+  ('Colombo Port', 'PORT', 'CASH_ENTITY', 'defaults/colombo-port.jpeg'),
+  ('RMV', 'GOVERNMENT', 'CASH_ENTITY', 'defaults/rmv.jpeg'),
+  ('Petty Cash', 'CASH', 'CASH_ACCOUNT', 'defaults/petty-cash.jpeg'),
   -- Aggregate source for Advance/Direct Cash sale receipts, so depositing one into a real
   -- Cash Account is a real transfer (source=Customer Payments) rather than an untracked
   -- number — its own balance shows cumulative money received from customers, mirroring
   -- how a Leasing Company's balance reflects cumulative disbursements.
-  ('Customer Payments', 'CUSTOMER', 'CASH_ACCOUNT');
+  ('Customer Payments', 'CUSTOMER', 'CASH_ACCOUNT', null);
 
 -- security definer: Staff can create suppliers, but `cash_entities` writes are Admin-only
 -- (it's a chart-of-accounts-style config table). This trigger's cash_entities writes are an
