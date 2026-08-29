@@ -79,6 +79,11 @@ do $$ begin
   end if;
 end $$;
 
+-- security definer functions inherit the caller's search_path unless told otherwise, and
+-- auth.users inserts run under Supabase's internal auth role, whose search_path doesn't
+-- include `public` — without "set search_path = public" the unqualified ::user_role_t cast
+-- below fails to resolve the type, which GoTrue surfaces as an opaque "Database error
+-- creating new user". Explicit schema-qualification on the type is a second, redundant guard.
 create or replace function public.handle_new_user()
 returns trigger as $$
 begin
@@ -87,11 +92,11 @@ begin
     new.id,
     coalesce(new.raw_user_meta_data ->> 'display_name', new.email),
     new.email,
-    coalesce((new.raw_user_meta_data ->> 'role')::user_role_t, 'VIEWER')
+    coalesce((new.raw_user_meta_data ->> 'role')::public.user_role_t, 'VIEWER'::public.user_role_t)
   );
   return new;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql security definer set search_path = public;
 
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
