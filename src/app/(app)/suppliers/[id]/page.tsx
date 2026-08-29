@@ -6,6 +6,8 @@ import {
   TRANSFER_METHOD_LABEL,
   formatMoney,
   VEHICLE_STATUS_LABEL,
+  SPARE_KEY_STATUS_LABEL,
+  SPARE_KEY_STATUS_TONE_CLASSES,
   type CashEntity,
   type CashEntityBalance,
   type CashTransfer,
@@ -369,6 +371,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                   <th className="px-4 py-2">Chassis No.</th>
                   <th className="px-4 py-2">Vehicle</th>
                   <th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2">Spare Key</th>
                 </tr>
               </thead>
               <tbody>
@@ -387,6 +390,13 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                       {v.vehicle_models?.make} {v.vehicle_models?.name}
                     </td>
                     <td className="px-4 py-2 text-gray-600">{VEHICLE_STATUS_LABEL[v.vehicle_status]}</td>
+                    <td className="px-4 py-2">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-medium ${SPARE_KEY_STATUS_TONE_CLASSES[v.spare_key_status]}`}
+                      >
+                        {SPARE_KEY_STATUS_LABEL[v.spare_key_status]}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
