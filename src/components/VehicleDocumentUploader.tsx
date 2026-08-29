@@ -4,12 +4,16 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
+import { useRole } from "@/components/RoleProvider";
 
 export default function VehicleDocumentUploader({ chassisNumber }: { chassisNumber: string }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (role === "VIEWER") return null;
 
   async function handleFiles(e: React.ChangeEvent<HTMLInputElement>) {
     const files = e.target.files;

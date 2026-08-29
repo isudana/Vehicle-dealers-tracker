@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 import {
   CURRENCIES,
   SPARE_KEY_STATUS_LABEL,
@@ -15,6 +16,7 @@ import {
 export default function NewVehiclePage() {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [models, setModels] = useState<VehicleModel[]>([]);
   const [form, setForm] = useState({
@@ -127,6 +129,17 @@ export default function NewVehiclePage() {
     }
 
     router.push(`/vehicles/${encodeURIComponent(form.chassis_number.trim())}`);
+  }
+
+  if (role === "VIEWER") {
+    return (
+      <div className="max-w-lg space-y-4">
+        <p className="text-sm text-gray-500">You don&apos;t have permission to add a vehicle.</p>
+        <Link href="/vehicles" className="text-sm text-gray-500 hover:text-gray-800">
+          ← Back to vehicles
+        </Link>
+      </div>
+    );
   }
 
   return (

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
+import { useRole } from "@/components/RoleProvider";
 import {
   CURRENCIES,
   TRANSFER_METHOD_LABEL,
@@ -21,6 +22,7 @@ export default function OverheadExpenseForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const sourceOptions = entities.filter((e) => e.category !== "CASH_ENTITY");
   const destinationOptions = entities;
   const defaultSource = sourceOptions.find((e) => e.type === "CASH") ?? sourceOptions[0];
@@ -110,6 +112,8 @@ export default function OverheadExpenseForm({
     setAttachment(null);
     router.refresh();
   }
+
+  if (role === "VIEWER") return null;
 
   if (sourceOptions.length === 0 || destinationOptions.length === 0) {
     return (

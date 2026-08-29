@@ -3,12 +3,16 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 
 export default function MarkReceivedButton({ chassisNumber }: { chassisNumber: string }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  if (role === "VIEWER") return null;
 
   async function handleClick() {
     setSaving(true);

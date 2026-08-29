@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getCurrentUserProfile } from "@/lib/auth";
 import type { Customer } from "@/lib/types";
 
 export default async function CustomersPage() {
+  const profile = await getCurrentUserProfile();
   const supabase = await createClient();
   const { data, error } = await supabase.from("customers").select("*").order("full_name");
   const customers = (data ?? []) as Customer[];
@@ -11,12 +13,14 @@ export default async function CustomersPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-gray-900">Customers</h1>
-        <Link
-          href="/customers/new"
-          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
-        >
-          + Add customer
-        </Link>
+        {profile?.role !== "VIEWER" && (
+          <Link
+            href="/customers/new"
+            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            + Add customer
+          </Link>
+        )}
       </div>
 
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}

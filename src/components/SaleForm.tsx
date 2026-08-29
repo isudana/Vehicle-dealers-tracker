@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 import type { CashEntity, Customer, PaymentType } from "@/lib/types";
 
 export default function SaleForm({
@@ -16,6 +17,7 @@ export default function SaleForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [customerMode, setCustomerMode] = useState<"existing" | "new">(
     customers.length > 0 ? "existing" : "new",
   );
@@ -82,6 +84,8 @@ export default function SaleForm({
 
     router.refresh();
   }
+
+  if (role === "VIEWER") return null;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-gray-200 bg-white p-4">

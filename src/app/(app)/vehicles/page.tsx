@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { getPublicUrl } from "@/lib/storage";
+import { getCurrentUserProfile } from "@/lib/auth";
 import { formatMoney, type ModelSummary, type VehiclePnl } from "@/lib/types";
 import VehicleSearchableTable from "@/components/VehicleSearchableTable";
 
 export default async function VehiclesPage() {
+  const profile = await getCurrentUserProfile();
   const supabase = await createClient();
   const [vehiclesRes, photosRes, modelSummaryRes] = await Promise.all([
     supabase.from("vehicle_pnl").select("*").order("chassis_number"),
@@ -26,12 +28,14 @@ export default async function VehiclesPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-semibold text-gray-900">Vehicles</h1>
-        <Link
-          href="/vehicles/new"
-          className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
-        >
-          + Add vehicle
-        </Link>
+        {profile?.role !== "VIEWER" && (
+          <Link
+            href="/vehicles/new"
+            className="rounded-md bg-gray-900 px-3 py-2 text-sm font-medium text-white hover:bg-gray-800"
+          >
+            + Add vehicle
+          </Link>
+        )}
       </div>
 
       {error && <p className="rounded-md bg-red-50 p-3 text-sm text-red-700">{error.message}</p>}
