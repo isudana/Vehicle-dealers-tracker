@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import type { UserRole } from "@/lib/types";
 
 const UTILITIES = [
   { href: "/chassis-lookup", label: "Chassis Lookup" },
@@ -13,9 +14,13 @@ const UTILITIES = [
 export default function NavBar({
   appName,
   logoUrl,
+  role,
+  displayName,
 }: {
   appName: string;
   logoUrl: string | null;
+  role: UserRole | null;
+  displayName: string | null;
 }) {
   const router = useRouter();
   const supabase = createClient();
@@ -94,16 +99,18 @@ export default function NavBar({
               </div>
             )}
           </div>
-          <Link href="/settings" className="text-sm text-gray-600 hover:text-gray-900">
-            Settings
-          </Link>
+          {role === "ADMIN" && (
+            <Link href="/settings" className="text-sm text-gray-600 hover:text-gray-900">
+              Settings
+            </Link>
+          )}
         </div>
-        <button
-          onClick={handleSignOut}
-          className="text-sm text-gray-500 hover:text-gray-900"
-        >
-          Sign out
-        </button>
+        <div className="flex items-center gap-3">
+          {displayName && <span className="text-sm text-gray-500">{displayName}</span>}
+          <button onClick={handleSignOut} className="text-sm text-gray-500 hover:text-gray-900">
+            Sign out
+          </button>
+        </div>
       </div>
     </nav>
   );

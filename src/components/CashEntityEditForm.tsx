@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { uploadFile } from "@/lib/storage";
+import { useRole } from "@/components/RoleProvider";
 import { CURRENCIES } from "@/lib/types";
 
 export default function CashEntityEditForm({
@@ -17,6 +18,7 @@ export default function CashEntityEditForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(initialName);
   const [primaryCurrency, setPrimaryCurrency] = useState(initialCurrency);
@@ -56,6 +58,7 @@ export default function CashEntityEditForm({
   }
 
   if (!editing) {
+    if (role !== "ADMIN") return null;
     return (
       <button
         type="button"

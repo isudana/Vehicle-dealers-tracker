@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { deleteFile } from "@/lib/storage";
 import DeleteButton from "@/components/DeleteButton";
+import { useRole } from "@/components/RoleProvider";
 
 export default function EntityDeleteButton({
   what,
@@ -26,6 +27,9 @@ export default function EntityDeleteButton({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
+
+  if (role !== "ADMIN") return null;
 
   async function handleConfirm() {
     for (const f of filesToDelete) {

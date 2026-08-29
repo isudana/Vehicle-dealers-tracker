@@ -1,6 +1,7 @@
 "use client";
 
 import { cloneElement, isValidElement, useState, type ReactElement } from "react";
+import { useRole } from "@/components/RoleProvider";
 
 export default function Modal({
   triggerLabel,
@@ -15,6 +16,9 @@ export default function Modal({
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
+  const role = useRole();
+
+  if (role === "VIEWER") return null;
 
   return (
     <>

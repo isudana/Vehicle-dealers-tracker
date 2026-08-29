@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
+import { useRole } from "@/components/RoleProvider";
 import { formatMoney, type CashEntity, type LeasingStatus, type Sale } from "@/lib/types";
 
 const LEASING_STATUS_OPTIONS: LeasingStatus[] = ["NOT_APPLICABLE", "PENDING", "RECEIVED"];
@@ -16,6 +17,7 @@ export default function SaleLeasingEditForm({
 }) {
   const router = useRouter();
   const supabase = createClient();
+  const role = useRole();
   const [editing, setEditing] = useState(false);
   const [leasingCompanyId, setLeasingCompanyId] = useState(sale.leasing_company_id ?? leasingCompanies[0]?.id ?? "");
   const [leasingAmountApproved, setLeasingAmountApproved] = useState(String(sale.leasing_amount_approved));
@@ -57,13 +59,15 @@ export default function SaleLeasingEditForm({
           Leasing: {sale.leasing_company?.name ?? "—"} · Approved {formatMoney(sale.leasing_amount_approved)} ·
           Status: {sale.leasing_status} · RO: {sale.release_order_status ?? "—"}
         </p>
-        <button
-          type="button"
-          onClick={() => setEditing(true)}
-          className="text-xs font-medium text-gray-500 hover:text-gray-800"
-        >
-          Edit
-        </button>
+        {role !== "VIEWER" && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="text-xs font-medium text-gray-500 hover:text-gray-800"
+          >
+            Edit
+          </button>
+        )}
       </div>
     );
   }
