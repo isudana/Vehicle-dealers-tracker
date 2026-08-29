@@ -221,7 +221,7 @@ insert into cash_entities (name, type, category, logo_path) values
   ('Colombo Port', 'PORT', 'CASH_ENTITY', 'defaults/colombo-port.jpeg'),
   ('RMV', 'GOVERNMENT', 'CASH_ENTITY', 'defaults/rmv.jpeg'),
   ('Petty Cash', 'CASH', 'CASH_ACCOUNT', 'defaults/petty-cash.jpeg'),
-  ('Bank LC Dep', 'BANK', 'CASH_ACCOUNT', 'defaults/bank-lc-dep.png'),
+  ('Bank LC Dep', 'BANK', 'CASH_ENTITY', 'defaults/bank-lc-dep.png'),
   -- Aggregate source for Advance/Direct Cash sale receipts, so depositing one into a real
   -- Cash Account is a real transfer (source=Customer Payments) rather than an untracked
   -- number — its own balance shows cumulative money received from customers, mirroring
