@@ -232,17 +232,23 @@ insert into cash_entities (name, type, category, logo_path) values
 -- (it's a chart-of-accounts-style config table). This trigger's cash_entities writes are an
 -- internal effect of creating a supplier, not a user-facing "Staff edits the chart of
 -- accounts" action, so it needs to bypass the caller's own cash_entities grant.
+-- The Cash Entity row's name gets a " (Vehicle Purchases)" suffix — without it, a supplier's
+-- Cash Account and Cash Entity rows are indistinguishable by name wherever they appear
+-- together in an unfiltered entity list (e.g. a transfer's destination dropdown).
 create or replace function sync_cash_entity_from_supplier()
 returns trigger as $$
 begin
   if tg_op = 'INSERT' then
     insert into cash_entities (name, type, category, logo_path, primary_currency, supplier_id) values
       (new.name, 'SUPPLIER', 'CASH_ACCOUNT', new.logo_path, new.primary_currency, new.id),
-      (new.name, 'SUPPLIER', 'CASH_ENTITY', new.logo_path, new.primary_currency, new.id);
+      (new.name || ' (Vehicle Purchases)', 'SUPPLIER', 'CASH_ENTITY', new.logo_path, new.primary_currency, new.id);
   else
     update cash_entities
     set name = new.name, logo_path = new.logo_path, primary_currency = new.primary_currency
-    where supplier_id = new.id;
+    where supplier_id = new.id and category = 'CASH_ACCOUNT';
+    update cash_entities
+    set name = new.name || ' (Vehicle Purchases)', logo_path = new.logo_path, primary_currency = new.primary_currency
+    where supplier_id = new.id and category = 'CASH_ENTITY';
   end if;
   return new;
 end;
