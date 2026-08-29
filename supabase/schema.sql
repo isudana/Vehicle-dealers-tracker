@@ -2628,6 +2628,37 @@ create trigger on_receipt_change
   after insert or update or delete on sale_receipts
   for each row execute procedure sync_vehicle_status_on_receipt_change();
 
+-- A sale (and advance receipts) can be recorded before a vehicle is In Stock — the reserving
+-- sale's insert only flips status while it's IN_STOCK, so a still-importing vehicle stays
+-- Bought - Not Received. When it later actually lands (e.g. via "Mark received"), this
+-- intercepts that IN_STOCK transition and lands it straight at the correct Sold status
+-- instead, based on the sale already on file, rather than incorrectly showing as available.
+create or replace function sync_vehicle_status_on_landed()
+returns trigger as $$
+declare
+  matching_sale record;
+  collected numeric(15, 2);
+begin
+  if new.vehicle_status = 'IN_STOCK' and old.vehicle_status <> 'IN_STOCK' then
+    select id, agreed_sale_price into matching_sale from sales where chassis_number = new.chassis_number;
+    if matching_sale.id is not null then
+      select coalesce(sum(amount), 0) into collected from sale_receipts where sale_id = matching_sale.id;
+      if collected >= matching_sale.agreed_sale_price then
+        new.vehicle_status := 'SOLD_FULLY_CLOSED';
+      else
+        new.vehicle_status := 'SOLD_PENDING_PAYMENT';
+      end if;
+    end if;
+  end if;
+  return new;
+end;
+$$ language plpgsql;
+
+drop trigger if exists on_vehicle_landed on vehicles;
+create trigger on_vehicle_landed
+  before update of vehicle_status on vehicles
+  for each row execute procedure sync_vehicle_status_on_landed();
+
 -- ============ Storage buckets ============
 -- Photos/logos are public (stable URLs, low sensitivity). Receipts/documents are private
 -- (signed URLs), since they can show bank references/amounts. Upsert-style so reruns
