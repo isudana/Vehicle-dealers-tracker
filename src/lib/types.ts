@@ -253,6 +253,16 @@ export type OverheadExpense = {
   cash_transfers?: CashTransfer | null;
 };
 
+export type ChassisYearRange = {
+  id: string;
+  chassis_code: string;
+  year: number;
+  range_start: number;
+  range_end: number;
+  makes: string;
+  notes: string | null;
+};
+
 export type Resource = {
   id: string;
   title: string;
