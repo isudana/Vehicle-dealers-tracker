@@ -16,6 +16,7 @@ import {
 import SupplierTransferForm from "@/components/SupplierTransferForm";
 import SupplierHoldForm from "@/components/SupplierHoldForm";
 import SupplierHoldEditForm from "@/components/SupplierHoldEditForm";
+import SupplierEditForm from "@/components/SupplierEditForm";
 import EntityDeleteButton from "@/components/EntityDeleteButton";
 import Modal from "@/components/Modal";
 
@@ -121,7 +122,11 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
               {supplier.country}
               {supplier.contact_person ? ` · ${supplier.contact_person}` : ""}
               {supplier.phone ? ` · ${supplier.phone}` : ""}
+              {supplier.email ? ` · ${supplier.email}` : ""}
             </p>
+            <div className="mt-1">
+              <SupplierEditForm supplier={supplier} />
+            </div>
           </div>
           <EntityDeleteButton
             what={`supplier "${supplier.name}"`}
