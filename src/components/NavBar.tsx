@@ -7,7 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import type { UserRole } from "@/lib/types";
 
 const UTILITIES = [
-  { href: "/chassis-lookup", label: "Chassis Lookup" },
+  { href: "/chassis-lookup", label: "YOM Lookup" },
   { href: "/grade-search", label: "Grade Search" },
 ];
 
